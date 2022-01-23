@@ -5,6 +5,10 @@ save pictures
 
 
 """
+"""
+pip install PIL 
+pip install vpython
+"""
 
 from PIL import Image, ImageGrab
 from vpython import *
