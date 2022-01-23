@@ -6,24 +6,18 @@ save pictures
 
 """
 
+from PIL import Image, ImageGrab
 from vpython import *
 from wavefront import *
 from offline_params import *
 import numpy as np
 import math
+import time, sys
 
-# Obj file
-path = "Models/"
-obj_file_name = "model_1_tri"
-ext = ".obj"
-
-# Capture file
-capture_path = "C:/Users/jlm/Downloads/"
-capture_name = "visual_python_capture"
-capture_ext = ".png"
 
 # Capture
 res = (640, 480) #px
+capture_origin = (54, 180)
 
 # Camera
 cam_fov = 60 #°
@@ -33,9 +27,6 @@ cam_loc = [0, 0, 0]		# x y z
 cam_rho = 0				# dist
 cam_theta = 0			# angle plat
 cam_phi = 0				# angle vertical
-
-range_rho = np.linspace(15, 25, num = 50, endpoint=False) #m
-range_theta = range_phi = np.linspace(0, 180, num = 50, endpoint=False) #°
 
 # Object
 scale = 0.01 # meter -> cm
@@ -58,9 +49,13 @@ def normal2color(n):
 	return vector((1+n[0])/2., (1+n[1])/2., (1+n[2])/2.)
 
 
-# IMPORT OBJ
+def rotate(current, new):
+	return new - current
 
-model = load_obj(path + obj_file_name + ext, triangulate=True)
+
+# Import obj
+
+model = load_obj(model_path + obj_file_name + ext, triangulate=True)
 
 
 #print(model.vertices)
@@ -91,14 +86,20 @@ print("First face", faces[0], "Associated normal", normals[0])
 print("Number of faces/normals", len(faces), len(normals))
 
 
-# Displaying
+# Displaying scene
+
 scene2 = canvas(title='2D model data generation',
-    width=640, height=480,
+    width=res[0]/1.25, height=res[1]/1.25,
     center=vector(0,0,0), background=color.black, ambient=color.white)
+
+scene2.exit = 1
 
 scene2.lights = []
 
+scene2.fov = radians(cam_fov)
 
+
+# Object generation
 
 for i in range(len(faces)):
 	f = faces[i]
@@ -114,34 +115,56 @@ obj = compound(tri_list)
 obj.pos = vector(0, 0, 0)
 print(obj.pos, obj.axis)
 
-#obj.rotate(radians(-90))
+
+# Repositionment & config
+
+time.sleep(1)
+
+obj.rotate(radians(90), vector(0, 1, 0))
+#obj.rotate(radians(90), vector(0, 1, 0))
+#obj.rotate(radians(90), vector(0, 0, 1))
 
 scene2.autoscale = 0
 scene2.center = vector(0, 0, 0)
 
 scene2.up = vector(0, 0, 1)
 
-#for rho in range_rho:
-for theta in range_theta:
-	print("theta", 90-theta/2)
-	for phi in range_phi:
-	
-		
 
-		coo = sph2cart(15, radians(90-theta/2), radians(phi*2))
-		scene2.camera.pos = vector(coo[0], coo[1], coo[2])
-		scene2.camera.axis = vector(-coo[0], -coo[1], -coo[2])
-		
+# Buffer
 
-		rate(60)
-			
+for x in range(50):
+	print(x)
+	rate(5)
 
 
+# Training data generation
 
-scene2.capture("visual_python_capture")
+for rho in range_rho:
+	for theta in range_theta:
+		for phi in range_phi:
+
+			coo = sph2cart(rho, radians(95-theta), radians(phi))
+			scene2.camera.pos = vector(coo[0], coo[1], coo[2])
+			scene2.camera.axis = vector(-coo[0], -coo[1], -coo[2])
+
+			time.sleep(0.05)
+			#rate(10)
+
+			# Capture
+
+			capture_name = capture_ixt+obj_file_name+"_"+str(rho)+"_"+str(theta)+"_"+str(phi)+".png"
+			capture = ImageGrab.grab((capture_origin[0], capture_origin[1], capture_origin[0]+res[0], capture_origin[1]+res[1]))
+
+			capture.save(data_path+capture_name, 'PNG')
+
+			print(rho, theta, phi)
+
+			#scene2.capture("visual_python_capture")
+
+#scene2.capture("visual_python_capture")
+
+sys.exit()
+
 
 #scene2.forward = vector(-1, 1, 1)
 #scene2.range = 10
-
-
-#scene.capture("visual_python_capture")
