@@ -114,4 +114,4 @@ dmypy.json
 .pyre/
 
 # Oui
-Data/
+Data/*
