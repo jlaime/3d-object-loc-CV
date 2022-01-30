@@ -88,6 +88,27 @@ from PIL import Image
 import imutils
 import numpy as np
 from skimage.measure import compare_ssim
+import time
+
+import cProfile
+
+import matplotlib.pyplot as plt
+
+
+
+def fast_eigen(a, b, c, d):
+	# https://people.math.harvard.edu/~knill/teaching/math21b2004/exhibits/2dmatrices/index.html
+	
+	T = a+d # trace
+	D = a*d - b*c # determinant
+
+	L1 = T/2 + np.sqrt(T**2/(4-D))
+	L2 = T/2 - np.sqrt(T**2/(4-D))
+
+	return L1, L2
+
+
+
 
 
 def colornorm2amp(cm, cr, cc):
@@ -100,12 +121,12 @@ def colornorm2amp(cm, cr, cc):
 	#cr = cr[::-1]
 	#cc = cc[::-1]
 
-	cm = cm/255.0
-	cr = cr/255.0
-	cc = cc/255.0
-
 	#if cm == (0, 0, 0) and cr == (0, 0, 0) and cc == (0, 0, 0):
 	#	return (0, 0)
+
+	#if not(cm[0] - cr[0] == 0 and cm[1] - cr[1] == 0 and cm[2] - cr[2] == 0 and cm[0] - cc[0] == 0 and cm[1] - cc[1] == 0 and cm[2] - cc[2] == 0):
+
+		#gr_r /= 255 ; gr_g /= 255 ; gr_b /= 255 ; gc_r /= 255 ; gc_g /= 255 ; gc_b /= 255
 
 	# Row grad
 	gr_r = cm[0] - cr[0]
@@ -117,18 +138,17 @@ def colornorm2amp(cm, cr, cc):
 	gc_g = cm[1] - cc[1]
 	gc_b = cm[2] - cc[2]
 
-	if (gr_r, gr_g, gr_b, gc_r, gc_g, gc_b) == (0, 0, 0, 0, 0, 0):
-		return 0.0
-
 	# Intermediate grad
 	grr = gr_r**2 + gr_g**2 + gr_b**2
 	grc = gr_r*gc_r + gr_g*gc_g + gr_b*gc_b
 	gcc = gc_r**2 + gc_g**2 + gc_b**2
 
 	# Color tensor
-	C = [[grr, grc], [grc, gcc]]
+	#C = [[grr, grc], [grc, gcc]]
 
-	eigen = np.linalg.eig(C)[0]
+	eigen = fast_eigen(grr, grc, grc, gcc)
+
+	#eigen = np.linalg.eig(C)[0]
 	#print(eigen)
 	best_eig = max(eigen)
 
@@ -137,25 +157,28 @@ def colornorm2amp(cm, cr, cc):
 	return A
 
 
+
 def image2edge(img, angle_threshold): # using colornorm2amp
+
+	img = img / 255
 
 	edge = np.zeros(img.shape[:2]) # , dtype=np.uint8
 		
 	#gray = cv.cvtColor(edge, cv.COLOR_BGR2GRAY)
 	print(edge.shape)
 
-
 	for y in range(1, img.shape[0]):
 		for x in range(1, img.shape[1]):
-			amplitude = colornorm2amp(img[y, x], img[y, x-1], img[y-1, x])
 
-			if amplitude > 0.0:
+			if not((img[y, x, 0] == img[y, x-1, 0] and img[y, x, 1] == img[y, x-1, 1] and img[y, x, 2] == img[y, x-1, 2]) and 
+				(img[y, x, 0] == img[y-1, x, 0] and img[y, x, 1] == img[y-1, x, 1] and img[y, x, 2] == img[y-1, x, 2])):
+
+				amplitude = colornorm2amp(img[y, x], img[y, x-1], img[y-1, x])
 				angle = 2*np.arcsin(amplitude/2)
 				#print(angle)
-				grayscale = amplitude if angle > angle_threshold else 0
-				edge.itemset(y, x, grayscale)
+				edge[y, x] = amplitude if angle > angle_threshold else 0
 
-			#amplitude = 255 if angle > angle_threshold else 0
+				#amplitude = 255 if angle > angle_threshold else 0
 
 	return edge
 
@@ -168,17 +191,14 @@ def F(theta, g11, g12, g22):
 def gray2grad(img): # taking gray image
 
 	img = img / 255
-	print(img)
+	#print(img)
 
 	grad = np.zeros((img.shape[0], img.shape[1], 2))
 
 	for y in range(img.shape[0]-1):
 		for x in range(img.shape[1]-1):
 
-			if img[y, x] == 0 and img[y+1, x] == 0 and img[y, x+1] == 0 and img[y+1, x+1] == 0:
-				pass
-
-			else :
+			if not(img[y, x] == img[y+1, x] and img[y, x] == img[y, x+1] and img[y, x] == img[y+1, x+1]):
 
 				aj1 = (img[y, x+1] + img[y+1, x+1])/2 - (img[y, x] + img[y+1, x])/2
 				aj2 = (img[y+1, x] + img[y+1, x+1])/2 - (img[y, x] + img[y, x+1])/2
@@ -187,29 +207,33 @@ def gray2grad(img): # taking gray image
 				g22 = aj2**2
 				g12 = aj1*aj2
 
+				if g11 - g12 != 0 and g11 - g22 != 0:
 
-				if (g11 - g22) == 0.0:
-					theta1 = np.pi/2 if g12 >= 0 else -np.pi/2
-				else :
-					theta1 = 1/2 * np.arctan(2*g12 / (g11 - g22))
 
-				theta2 = theta1 + np.pi/2
+					if (g11 - g22) == 0.0:
+						theta1 = np.pi/2 if g12 >= 0 else -np.pi/2
+					else :
+						theta1 = 1/2 * np.arctan(2*g12 / (g11 - g22))
 
-				F1 = F(theta1, g11, g12, g22)
-				F2 = F(theta2, g11, g12, g22)
+					theta2 = theta1 + np.pi/2
 
-				F_max = max(F1, F2)
+					F1 = F(theta1, g11, g12, g22)
+					F2 = F(theta2, g11, g12, g22)
 
-				if F_max == F1:
-					theta = theta1
-				else :
-					theta = theta2
+					F_max = max(F1, F2)
 
-				grad[y, x, 0] = np.sqrt(F_max*3)
-				grad[y, x, 1] = theta
+					if F_max == F1:
+						theta = theta1
+					else :
+						theta = theta2
 
-				#print(theta1, theta2)
-				#grad[y, x, 1] = theta
+					grad[y, x, 0] = np.sqrt(F_max*3)
+					grad[y, x, 1] = theta
+					#grad.itemset(y, x, 0, np.sqrt(F_max*3))
+					#grad.itemset(y, x, 1, theta)
+
+					#print(theta1, theta2)
+					#grad[y, x, 1] = theta
 
 	return grad
 
@@ -217,7 +241,7 @@ def gray2grad(img): # taking gray image
 def color2grad(img): # taking 3 channel color image
 		
 	img = img / 255
-	print(img)
+	#print(img)
 
 	grad = np.zeros((img.shape[0], img.shape[1], 2))
 
@@ -232,10 +256,7 @@ def color2grad(img): # taking 3 channel color image
 
 			for j in range(m):
 
-				if img[y, x, j] == 0.0 and img[y+1, x, j] == 0.0 and img[y, x+1, j] == 0.0 and img[y+1, x+1, j] == 0.0:
-					pass
-
-				else :
+				if not(img[y, x, j] == img[y+1, x, j] and img[y, x, j] == img[y, x+1, j] and img[y, x, j] == img[y+1, x+1, j]):
 
 					aj1 = (img[y, x+1, j] + img[y+1, x+1, j])/2 - (img[y, x, j] + img[y+1, x, j])/2
 					aj2 = (img[y+1, x, j] + img[y+1, x+1, j])/2 - (img[y, x, j] + img[y, x+1, j])/2
@@ -250,47 +271,81 @@ def color2grad(img): # taking 3 channel color image
 
 			#print(g11)
 
+			if g11 - g12 != 0 and g11 - g22 != 0:
 
-			if (g11 - g22) == 0.0:
-				theta1 = np.pi/2 if g12 >= 0 else -np.pi/2
-			else :
-				theta1 = 1/2 * np.arctan(2*g12 / (g11 - g22))
+				if (g11 - g22) == 0.0:
+					theta1 = np.pi/2 if g12 >= 0 else -np.pi/2
+				else :
+					theta1 = 1/2 * np.arctan(2*g12 / (g11 - g22))
 
-			theta2 = theta1 + np.pi/2
+				theta2 = theta1 + np.pi/2
 
-			F1 = F(theta1, g11, g12, g22)
-			F2 = F(theta2, g11, g12, g22)
 
-			F_max = max(F1, F2)
+				F1 = F(theta1, g11, g12, g22)
+				F2 = F(theta2, g11, g12, g22)
 
-			if F_max == F1:
-				theta = theta1
-			else :
-				theta = theta2
+				F_max = max(F1, F2)
 
-			grad[y, x, 0] = np.sqrt(F_max)
-			grad[y, x, 1] = theta
+				if F_max == F1:
+					theta = theta1
+				else :
+					theta = theta2
 
-			#print(theta1, theta2)
-			#grad[y, x, 1] = theta
+				grad[y, x, 0] = np.sqrt(F_max)
+				grad[y, x, 1] = theta
+				#grad.itemset(y, x, 0, np.sqrt(F_max))
+				#grad.itemset(y, x, 1, theta)
+
+				#print(theta1, theta2)
+				#grad[y, x, 1] = theta
 
 	return grad
 
 
+def grad2cart(grad):
+	cart = np.zeros((grad.shape[0], grad.shape[1], 2))
 
+	for y in range(grad.shape[0]):
+		for x in range(grad.shape[1]):
+			#cart.itemset(y, x, )
+			cart[y, x] = vec2cart(grad[y, x])
+
+	return cart
+
+
+
+def vec2cart(vec):
+	return (vec[0] * np.cos(vec[1]), vec[0] * np.sin(vec[1]))
+
+
+def norm(cart):
+	return np.sqrt( cart[0]**2 + cart[1]**2 )
 
 
 def similarity(m, s):
-	n = len(grad_m)
 	sim = 0
-	for i in range(n):
-		sim += np.abs(np.dot(m[i], s[i])) / (np.linalg.norm(m[i]) * np.linalg.norm(s[i]))
+	n = 0
+	for y in range(m.shape[0]):
+		for x in range(m.shape[1]):
 
+			if m[y, x, 0] != 0 and m[y, x, 1] != 0:
+				if s[y, x, 0] != 0 and s[y, x, 1] != 0:
+					sim += np.abs(np.dot(m[y, x], s[y, x])) / (norm(m[y, x]) * norm(s[y, x]))
+					n+=1
+			
 	return sim/n
 
+def similarity_vec(m, s, correction = 0):
+	sim = 0
+	n = 0
+	for y in range(m.shape[0]):
+		for x in range(m.shape[1]):
 
-
-
+			if m[y, x, 0] != 0 and s[y, x, 0] != 0:
+					sim += abs(np.cos(s[y, x, 1] - m[y, x, 1] + correction))
+					n+=1
+			
+	return sim/n
 
 
 def cosine_similarity(image, image2):
@@ -315,6 +370,26 @@ def rotateImage(image, angle):
     new_image = cv2.warpAffine(image, rot_mat, (col,row))
     return new_image
 
+
+
+def grad_render(img, grad, color, arrow_len, step):
+
+	for y in range(0, img.shape[0], step):
+		for x in range(0, img.shape[1], step):
+
+			vec_x, vec_y = vec2cart(grad[y, x])
+
+			if grad[y, x, 0] > 0 :
+
+				len_x = int(arrow_len * vec_x)
+				len_y = int(arrow_len * vec_y)
+
+				#print(len_x, len_y)
+				
+				cv.arrowedLine(img, (x, y), (x+len_x, y+len_y), color)
+
+
+
 """
 def similarity(img1, img2):
 	flat1 = img1.flatten()
@@ -334,6 +409,8 @@ def similarity(img1, img2):
 """
 
 
+
+
 angle_threshold = np.radians(5.0)
 print("Lim", angle_threshold)
 
@@ -341,23 +418,72 @@ print("Lim", angle_threshold)
 capture_name1 = data_path + capture_ixt+obj_file_name+"_"+str(7.0)+"_"+str(-50.0)+"_"+str(-20.0)+".png"
 capture_name2 = data_path + capture_ixt+obj_file_name+"_"+str(7.0)+"_"+str(-50.0)+"_"+str(-24.0)+".png"
 
-capture_name1 = data_path + "test2.png"
+capture_name1 = data_path + "test3.png"
 capture_name2 = data_path + "test1.png"
 
 
 img1 = cv.imread(capture_name1)
 img2 = cv.imread(capture_name2)
-grad = gray2grad(cv.cvtColor(img1, cv.COLOR_BGR2GRAY))[:, :, 0]
-color_grad = color2grad(img1)[:, :, 0]
+
+grad = gray2grad(cv.cvtColor(img1, cv.COLOR_BGR2GRAY))
+color_grad = color2grad(img2)
+
+
+angles = []
+sim_plt = []
+
+for a in range(-45, 45):
+	grad_rot = imutils.rotate(color_grad, a)	
+	
+	#grad_render(img2, color_grad, (0, 0, 255), arrow_len = 30, step = 2)
+
+	sim = similarity_vec(grad, grad_rot)
+	print("Similarity", a, sim)
+
+	angles.append(a)
+	sim_plt.append(sim)
+
+	cv.imshow("Grad rot", grad_rot[:,:,0])
+	cv.waitKey(1)
+
+plt.rcParams["figure.figsize"] = (8,6)
+plt.plot(angles, sim_plt)
+plt.xlabel('Angle')
+plt.ylabel('similarity')
+plt.show()
+
+#cProfile.run('gray2grad(cv.cvtColor(img2, cv.COLOR_BGR2GRAY))')
+
+
+#t1 = time.time()
+#cart1 = grad2cart(grad)
+#cart2 = grad2cart(color_grad)
+#t1 = time.time()
+
+#print("rotate")
+#color_grad = imutils.rotate(color_grad, 90)
+
+
+print("Similarity", similarity_vec(grad, color_grad))
+#print("Time =", time.time() - t1)
+
+#cProfile.run('similarity_vec(grad, color_grad)')
+
+
+
 cv.imshow("Display 1", img1)
 cv.imshow("Display 2", img2)
-cv.imshow("gray2grad", grad)
-cv.imshow("color2grad", color_grad)
-print(np.max(grad))
+cv.imshow("gray2grad", grad[:, :, 0])
+cv.imshow("color2grad", color_grad[:, :, 0])
+print(np.max(color_grad))
+
+
 cv.waitKey(0)
 
 edge1 = image2edge(img1, angle_threshold)
-edge2 = image2edge(img2, 0)
+edge2 = image2edge(img2, angle_threshold)
+
+#cProfile.run('image2edge(img2, angle_threshold)')
 
 cv.imshow("Color edge algorithm", edge2)
 cv.waitKey(0)
@@ -371,6 +497,8 @@ for a in range(-10, 10):
 	cv.imshow("Edge 1", rotated)
 	#cv.imshow("Edge 2", rotated)
 	cv.imshow("Difference", np.abs(rotated - color_grad))
+
+	#print("Similarity", similarity(grad, cart2))
 
 	#print(cosine_similarity(edge1, rotated))
 	#print(compare_ssim(edge1, rotated))
