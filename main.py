@@ -88,12 +88,17 @@ from PIL import Image
 import imutils
 import numpy as np
 from skimage.measure import compare_ssim
-import time
+import time, sys
 
 import cProfile
 
 import matplotlib.pyplot as plt
 
+from itertools import combinations
+import pickle
+from scipy.sparse import csr_matrix
+
+from treelib import Tree, Node
 
 
 def fast_eigen(a, b, c, d):
@@ -162,7 +167,7 @@ def image2edge(img, angle_threshold): # using colornorm2amp
 
 	img = img / 255
 
-	edge = np.zeros(img.shape[:2]) # , dtype=np.uint8
+	edge = np.zeros(img.shape[:2], 2) # , dtype=np.uint8
 		
 	#gray = cv.cvtColor(edge, cv.COLOR_BGR2GRAY)
 	print(edge.shape)
@@ -176,7 +181,8 @@ def image2edge(img, angle_threshold): # using colornorm2amp
 				amplitude = colornorm2amp(img[y, x], img[y, x-1], img[y-1, x])
 				angle = 2*np.arcsin(amplitude/2)
 				#print(angle)
-				edge[y, x] = amplitude if angle > angle_threshold else 0
+				edge[y, x, 0] = amplitude if angle > angle_threshold else 0
+				edge[y, x, 1] = angle
 
 				#amplitude = 255 if angle > angle_threshold else 0
 
@@ -344,23 +350,57 @@ def similarity_vec(m, s, correction = 0):
 			if m[y, x, 0] != 0 and s[y, x, 0] != 0:
 					sim += abs(np.cos(s[y, x, 1] - m[y, x, 1] + correction))
 					n+=1
-			
+	
+
 	return sim/n
 
 
-def cosine_similarity(image, image2):
-	flatten_image = image.flatten()
-	flatten_image_2 = image2.flatten()
+def similarity_sparse(m, s): # nul a chier
+	sim = 0
+	n = 0
 
-	flatten_image_norm = np.linalg.norm(flatten_image)
-	flatten_image_2_norm = np.linalg.norm(flatten_image_2)
+	for e in m[1:]:
+		y, x, t = e
 
-	dot_product = np.dot(flatten_image, flatten_image_2)
+		for f in s[1:]:
 
-	print(dot_product, flatten_image_norm, flatten_image_2_norm)
+			if y == f[0] and x == f[1]:
+				sim += abs(np.cos(f[2][1] - t[1]))
+				n+=1
 
-	cosine_similarity = dot_product / (flatten_image_norm*flatten_image_2_norm)
-	return cosine_similarity
+				break
+
+			if f[0] > y and f[1] > x:
+				#print("Break")
+				break
+
+		#match = [f for f in s[1:] if (y == f[0] and x == f[1])]
+
+		#print(match)
+
+		#if len(match) == 1:
+		#	match = match[0]
+
+		#	sim += abs(np.cos(match[2][1] - t[1]))
+		#	n+=1
+
+
+	return sim/n
+
+
+# def cosine_similarity(image, image2):
+# 	flatten_image = image.flatten()
+# 	flatten_image_2 = image2.flatten()
+
+# 	flatten_image_norm = np.linalg.norm(flatten_image)
+# 	flatten_image_2_norm = np.linalg.norm(flatten_image_2)
+
+# 	dot_product = np.dot(flatten_image, flatten_image_2)
+
+# 	print(dot_product, flatten_image_norm, flatten_image_2_norm)
+
+# 	cosine_similarity = dot_product / (flatten_image_norm*flatten_image_2_norm)
+# 	return cosine_similarity
 
 
 def rotateImage(image, angle):
@@ -390,35 +430,296 @@ def grad_render(img, grad, color, arrow_len, step):
 
 
 
+def grad2sparse(grad):
+	#t1 = time.time()
+	sparse_array = [(grad.shape[0], grad.shape[1], grad.shape[2])]
+
+	for y in range(grad.shape[0]):
+		for x in range(grad.shape[1]):
+
+			if grad[y, x, 0] > 0:
+				sparse_array.append((y, x, grad[y, x]))
+
+	#print(time.time() - t1, len(sparse_array))
+	return sparse_array
+
+
+def sparse2grad(sparse):
+	#t1 = time.time()
+	grad = np.zeros(sparse[0])
+
+	for e in sparse[1:]:
+		grad[e[0], e[1]] = e[2]
+
+	#print(time.time() - t1)
+
+	return grad
+
+
+def save_sparse_grad():
+	for rho in range_rho:
+		for theta in range_theta:
+			for phi in range_phi:
+
+				t1 = time.time()
+
+				store_name = data_path + grad_ixt+obj_file_name+"_"+str(rho)+"_"+str(theta)+"_"+str(phi)+"_"+str(5)+grad_ext
+
+
+				try :
+					f = open(store_name, 'rb')
+					#grad_captures = pickle.load(f)
+					f.close()
+					print("Gradient deja existant !")
+
+				except Exception as e:
+					print(e)
+
+					print("Generation gradient...")
+
+					capture_name = data_path + capture_ixt+obj_file_name+"_"+str(rho)+"_"+str(theta)+"_"+str(phi)+".png"
+					print(capture_name)
+					img = cv.imread(capture_name, cv.IMREAD_GRAYSCALE)
+					grad = gray2grad(img)
+
+					sparse = grad2sparse(grad)
+					#print(sparse2grad(sparse))
+
+					f = open(store_name, 'wb')
+					pickle.dump(sparse, f)
+					f.close()
+
+
+
+#save_sparse_grad()
+#sys.exit()
+
+
+
 """
-def similarity(img1, img2):
-	flat1 = img1.flatten()
-	flat2 = img2.flatten()
 
-	n = flat1.shape[0]
+Create tree holder
 
-	flatten_image_norm = np.linalg.norm(flatten_image)
-	flatten_image_2_norm = np.linalg.norm(flatten_image_2)
+Level -1:
+All views
 
-	dot_product = np.dot(flatten_image, flatten_image_2)
+Level 0:
 
-	print(dot_product, flatten_image_norm, flatten_image_2_norm)
+Subsample ranges
+For each view, access all neighbours views
+	For each pair of views, compute similarity
+	If sim > thresh -> merge
 
-	cosine_similarity = dot_product / (flatten_image_norm*flatten_image_2_norm)
-	return cosine_similarity
+	If no pair > thresh remaining -> Save all reamining views and main view to level, with ref to merged views
+
+Level 1:
+
+Downsample picture resolution
+Repeat
+
 """
 
 
+def pos2name(pos):
+	return str(int(pos[0]))+","+str(int(pos[1]))+","+str(int(pos[2]))
+
+
+
+pyramid = None
 
 
 angle_threshold = np.radians(5.0)
 print("Lim", angle_threshold)
 
+sim_thresh = 0.90
+
+
+step = 5
+mid = (step-1)/2
+
+pas = range_theta[1] - range_theta[0]
+
+rg = np.linspace(0, int(step*pas), int(step)-1)
+rg = np.arange(0, int(step*pas), pas)
+print(rg)
+
+pairs = np.linspace((0, 0), (int(step*pas), int(step*pas)), int(pas))
+
+
+tree_list_0 = []
+
+
+# Subsampling
+for rho in range_rho:
+	for theta in range_theta[0:-1:step]:
+		for phi in range_phi[0:-1:step]:
+
+			t1 = time.time()
+
+			#store_name = data_path + grad_ixt+obj_file_name+"_"+str(rho)+"_"+str(theta)+"_"+str(phi)+"_"+str(step)+grad_ext
+
+			grad_captures = []
+
+
+			# try :
+			# 	f = open(store_name, 'rb')
+			# 	grad_captures = pickle.load(f)
+			# 	f.close()
+			# 	print("Gradients deja existants !")
+
+			# except Exception as e:
+			# 	print(e)
+
+			# 	print("Generation groupes de gradients...")
+
+			for i in range(step):
+				for j in range(step):
+
+					t = theta + rg[i]
+					p = phi + rg[j]
+
+					store_name = data_path + grad_ixt+obj_file_name+"_"+str(rho)+"_"+str(t)+"_"+str(p)+"_"+str(5)+grad_ext
+					print(store_name)
+
+					f = open(store_name, 'rb')
+					grad_sparse = pickle.load(f)
+					f.close()
+
+					grad = sparse2grad(grad_sparse)
+
+					grad_captures.append([(rho, t, p), grad])
+
+
+				# f = open(store_name, 'wb')
+				# pickle.dump(grad_captures, f)
+				# f.close()
+
+
+
+			sim_pairs = []
+			already_used = []
+
+			previous_pair_0 = -1
+			for pair in combinations(range(0, step*step), 2):
+
+				if pair[0] not in already_used:
+
+					if pair[0] != previous_pair_0:
+
+						# Current tree creation (Root pair[0])
+						act_tree = Tree()
+						tree_list_0.append(act_tree)
+						root_name = pos2name(grad_captures[pair[0]][0])
+
+						act_tree.create_node(root_name, root_name, data = grad_captures[pair[0]][0])
+
+						# Default child: pair[0]
+						#act_tree.create_node(root_name, root_name, parent = root_name, data = grad_captures[pair[0]][0])
+
+						previous_pair_0 = pair[0]
+
+					if pair[1] not in already_used:
+
+						grad1 = grad_captures[pair[0]] [1]
+						grad2 = grad_captures[pair[1]] [1]
+
+						#cv.imshow("Scanned gradient", abs(grad1[:, :, 0] - grad2[:, :, 0]))
+						#cv.imshow("Current gradient", grad2[:, :, 0])
+						#cv.waitKey(1)
+
+
+
+						sim = similarity_vec(grad1, grad2)
+						#sim = similarity_sparse(grad1, grad2)
+
+						print(pair, sim)
+
+						if sim > sim_thresh:
+
+							# Adding children to root node
+							child_name = pos2name(grad_captures[pair[1]][0])
+							act_tree.create_node(child_name, child_name, parent = root_name, data = grad_captures[pair[1]][0])
+
+							sim_pairs.append( (grad_captures[pair[0]][0], grad_captures[pair[1]][0], sim) )
+							print("Added one")
+
+							already_used.append(pair[1])
+
+							# Adding full act_tree to tree_list level 0
+							#act_tree.show()
+
+						else :
+
+							cv.imshow("Different enough gradients", abs(grad1[:, :, 0] - grad2[:, :, 0]))
+							#cv.imshow("Current gradient", grad2[:, :, 0])
+							cv.waitKey(1)
+
+
+			# for tree in tree_list_0:
+			# 	tree.show()
+
+			#sys.exit()
+
+
+					
+					
+
+
+			
+			"""
+			for pair1 in combinations(range(0, int(step*pas), int(pas)), 2):
+
+				t1 = theta + pair1[0]
+				p1 = phi + pair1[1]
+
+				capture_name1 = data_path + capture_ixt+obj_file_name+"_"+str(rho)+"_"+str(t1)+"_"+str(p1)+".png"
+				img1 = cv.imread(capture_name1, cv.IMREAD_GRAYSCALE)
+				grad1 = gray2grad(img1)
+
+				for pair2 in combinations(range(pair1, int(step*pas), int(pas)), 2):
+
+					if pair1 != pair2 :
+
+						t2 = theta + pair2[0]
+						p2 = phi + pair2[1]
+
+						capture_name2 = data_path + capture_ixt+obj_file_name+"_"+str(rho)+"_"+str(t2)+"_"+str(p2)+".png"
+						img2 = cv.imread(capture_name2, cv.IMREAD_GRAYSCALE)
+						grad2 = gray2grad(img2)
+
+
+						sim = similarity_vec(grad1, grad2)
+
+						sim_pairs.append(sim)
+						print("Added one")
+				"""
+
+			print(rho, theta, phi, "Len sim_pairs:", len(sim_pairs))
+			print("Time", time.time() - t1)
+
+					
+
+
+
+f = open(data_path + "tree_list_0" + grad_ext, 'wb')
+pickle.dump(tree_list_0, f)
+f.close()
+
+
+
+
+
+
+
+
+
+"""
+
 
 capture_name1 = data_path + capture_ixt+obj_file_name+"_"+str(7.0)+"_"+str(-50.0)+"_"+str(-20.0)+".png"
 capture_name2 = data_path + capture_ixt+obj_file_name+"_"+str(7.0)+"_"+str(-50.0)+"_"+str(-24.0)+".png"
 
-capture_name1 = data_path + "test3.png"
+capture_name1 = data_path + "test7.png"
 capture_name2 = data_path + "test1.png"
 
 
@@ -517,5 +818,5 @@ cv.waitKey(0)
 #cv.imshow("Eroded", edge_eroded)
 #cv.waitKey(0)
 
-
+"""
 
