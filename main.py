@@ -631,6 +631,292 @@ def pos2name(pos):
 	"""
 	return str(int(pos[0]))+","+str(int(pos[1]))+","+str(int(pos[2]))
 
+def name2pos(name):
+	return name.split(",")
+
+
+def gen_lvl_0(step, sim_thresh, pas):
+
+	rg = np.arange(0, int(step*pas), pas)
+	print(rg)
+	pairs = np.linspace((0, 0), (int(step*pas), int(step*pas)), int(pas))
+
+	tree_list_0 = []
+
+	# Subsampling
+	for rho in range_rho:
+		for theta in range_theta[0:-1:step]:
+			for phi in range_phi[0:-1:step]:
+
+				t1 = time.time()
+
+				# List of saved gradients [(r, t, p), grad] 
+				grad_captures = []
+
+				# Importing gradients files for each position in the range
+				for i in range(step):
+					for j in range(step):
+
+						t = theta + rg[i]
+						p = phi + rg[j]
+
+						store_name = data_path + grad_ixt+obj_file_name+"_"+str(rho)+"_"+str(t)+"_"+str(p)+"_"+str(5)+grad_ext
+						print(store_name)
+
+						f = open(store_name, 'rb')
+						grad_sparse = pickle.load(f)
+						f.close()
+
+						# Converting sparse gradient to full matrix gradient
+						grad = sparse2grad(grad_sparse)
+
+						grad_captures.append([(rho, t, p), grad])
+
+
+				sim_pairs = []
+				already_used = []
+				previous_pair_0 = -1
+
+				for pair in combinations(range(0, step*step), 2):
+
+					if pair[0] not in already_used:
+
+						if pair[0] != previous_pair_0: # new pair[0] -> new tree
+
+							# Current tree creation (Root pair[0])
+							act_tree = Tree()
+							tree_list_0.append(act_tree) # passing by reference
+							root_name = pos2name(grad_captures[pair[0]][0])
+
+							act_tree.create_node(root_name, root_name, data = grad_captures[pair[0]][0])
+
+							# Default child: pair[0]
+							#act_tree.create_node(root_name, root_name, parent = root_name, data = grad_captures[pair[0]][0])
+
+							previous_pair_0 = pair[0]
+
+						if pair[1] not in already_used:
+
+							grad1 = grad_captures[pair[0]] [1]
+							grad2 = grad_captures[pair[1]] [1]
+
+							#cv.imshow("Scanned gradient", abs(grad1[:, :, 0] - grad2[:, :, 0]))
+							#cv.imshow("Current gradient", grad2[:, :, 0])
+							#cv.waitKey(1)
+
+							sim = similarity_vec(grad1, grad2)
+							#sim = similarity_sparse(grad1, grad2)
+							print(pair, sim)
+
+
+							if sim > sim_thresh:
+								# Adding children to root node
+								child_name = pos2name(grad_captures[pair[1]][0])
+								act_tree.create_node(child_name, child_name, parent = root_name, data = grad_captures[pair[1]][0])
+
+								sim_pairs.append( (grad_captures[pair[0]][0], grad_captures[pair[1]][0], sim) )
+								print("Added one")
+
+								already_used.append(pair[1])
+
+								# Adding full act_tree to tree_list level 0
+								#act_tree.show()
+
+							else :
+
+								cv.imshow("Different enough gradients", abs(grad1[:, :, 0] - grad2[:, :, 0]))
+								#cv.imshow("Current gradient", grad2[:, :, 0])
+								cv.waitKey(1)
+
+
+				# for tree in tree_list_0:
+				# 	tree.show()
+
+				#sys.exit()
+
+
+				print(rho, theta, phi, "Len sim_pairs:", len(sim_pairs))
+				print("Time", time.time() - t1)
+
+
+	f = open(data_path + "tree_list_0" + grad_ext, 'wb')
+	pickle.dump(tree_list_0, f)
+	f.close()
+
+
+
+def gen_lvl_others(mask_matrix, level, step, sim_thresh, pas):
+
+
+	rg = np.arange(0, int(step*pas), pas)
+	print(rg)
+	pairs = np.linspace((0, 0), (int(step*pas), int(step*pas)), int(pas))
+
+	tree_list_act = []
+
+
+	for rho in range_rho:
+		for theta in range_theta[0:-1:step]:
+			for phi in range_phi[0:-1:step]:
+
+				t1 = time.time()
+
+				# List of saved gradients [(r, t, p), grad] 
+				grad_captures = []
+
+				# Importing gradients files for each position in the range
+				for i in range(step):
+					for j in range(step):
+
+						t = theta + rg[i]
+						p = phi + rg[j]
+
+						r_i, t_i, p_i = pos2indexes(rho, t, p)
+
+						if mask_matrix[r_i, t_i, p_i] == True:
+
+							store_name = data_path + grad_ixt+obj_file_name+"_"+str(rho)+"_"+str(t)+"_"+str(p)+"_"+str(5)+grad_ext
+							print(store_name)
+
+							f = open(store_name, 'rb')
+							grad_sparse = pickle.load(f)
+							f.close()
+
+							# Converting sparse gradient to full matrix gradient
+							grad = sparse2grad(grad_sparse)
+
+							grad_captures.append([(rho, t, p), grad])
+
+						else:
+							grad_captures.append(None)
+
+
+				sim_pairs = []
+				already_used = []
+				previous_pair_0 = -1
+
+				for pair in combinations(range(0, step*step), 2):
+
+					if pair[0] not in already_used and grad_captures[pair[0]] != None:
+
+						if pair[0] != previous_pair_0: # new pair[0] -> new tree
+
+							# Current tree creation (Root pair[0])
+							act_tree = Tree()
+							tree_list_act.append(act_tree) # passing by reference
+							root_name = pos2name(grad_captures[pair[0]][0])
+
+							act_tree.create_node(root_name, root_name, data = grad_captures[pair[0]][0])
+
+							# Default child: pair[0]
+							#act_tree.create_node(root_name, root_name, parent = root_name, data = grad_captures[pair[0]][0])
+
+							previous_pair_0 = pair[0]
+
+						if pair[1] not in already_used and grad_captures[pair[1]] != None:
+
+							grad1 = grad_captures[pair[0]] [1]
+							grad2 = grad_captures[pair[1]] [1]
+
+							#cv.imshow("Scanned gradient", abs(grad1[:, :, 0] - grad2[:, :, 0]))
+							#cv.imshow("Current gradient", grad2[:, :, 0])
+							#cv.waitKey(1)
+
+							sim = similarity_vec(grad1, grad2)
+							#sim = similarity_sparse(grad1, grad2)
+							print(pair, sim)
+
+
+							if sim > sim_thresh:
+								# Adding children to root node
+								child_name = pos2name(grad_captures[pair[1]][0])
+								act_tree.create_node(child_name, child_name, parent = root_name, data = grad_captures[pair[1]][0])
+
+								sim_pairs.append( (grad_captures[pair[0]][0], grad_captures[pair[1]][0], sim) )
+								print("Added one")
+
+								already_used.append(pair[1])
+
+								# Adding full act_tree to tree_list level 0
+								#act_tree.show()
+
+							else :
+
+								cv.imshow("Different enough gradients", abs(grad1[:, :, 0] - grad2[:, :, 0]))
+								#cv.imshow("Current gradient", grad2[:, :, 0])
+								cv.waitKey(1)
+
+
+				#for tree in tree_list_act:
+				#	tree.show()
+
+				#sys.exit()
+
+
+				print(rho, theta, phi, "Len sim_pairs:", len(sim_pairs))
+				print("Time", time.time() - t1)
+
+
+	f = open(data_path + "tree_list_" + str(level) + grad_ext, 'wb')
+	pickle.dump(tree_list_act, f)
+	f.close()
+
+
+
+'''
+For level 1+:
+
+Load previous level file with trees
+Construct mask matrix of trees positions : 1 if root tree exists here, 0 else
+Iterate over matrix, with extended neighbours ranges
+
+For each group:
+	Load gradients
+	Reduce grad size (possible?) or similarity threshold
+	Pair similar gradients
+
+-> New tree_list
+Save as file
+
+
+
+Size : 5 * 51 * 51 = 13005 grads
+Level 0 (0.90) : 5 -> 5 * 10 * 10 = 500 min, 13k max, 1.3k avg
+Level 1 :  10 -> 5 * 5 * 5 = 125 min
+
+
+'''
+
+def pos2indexes(r, t, p):
+	r_i = np.where(range_rho == int(r))
+	t_i = np.where(range_theta == int(t))
+	p_i = np.where(range_phi == int(p))
+	
+	return r_i, t_i, p_i
+
+
+def treelist2mask(tree_list):
+	mask_matrix = np.zeros((len(range_rho), len(range_theta), len(range_phi)), dtype = "bool")
+
+	for tree in tree_list:
+		root_node = tree.get_node(tree.root)
+		#print(root_node)
+
+		r, t, p = name2pos(root_node.tag)
+		r_i, t_i, p_i = pos2indexes(r, t, p)
+
+		#print(r_i, t_i, p_i)
+		mask_matrix[r_i, t_i, p_i] = True
+
+	return mask_matrix
+
+
+def render_mask(mask_matrix):
+	for rho in range(mask_matrix.shape[0]):
+		cv.imshow("mask_matrix rho " + str(rho), imutils.resize(mask_matrix[rho, :, :].astype("B")*255, width=mask_matrix.shape[1]*6))
+		cv.waitKey(1)
+	cv.waitKey(0)
+
 
 
 pyramid = None
@@ -639,190 +925,66 @@ pyramid = None
 angle_threshold = np.radians(5.0)
 print("Lim", angle_threshold)
 
-sim_thresh = 0.90
+sim_thresh = 0.85
+resize_ratio = 0.8
 
+step = 7
+pas = range_theta[1] - range_theta[0] #2
 
-step = 5
-mid = (step-1)/2
 
-pas = range_theta[1] - range_theta[0]
 
-rg = np.linspace(0, int(step*pas), int(step)-1)
-rg = np.arange(0, int(step*pas), pas)
-print(rg)
+#gen_lvl_0(5, 0.90, pas)
 
-pairs = np.linspace((0, 0), (int(step*pas), int(step*pas)), int(pas))
 
-
-tree_list_0 = []
-
-
-# Subsampling
-for rho in range_rho:
-	for theta in range_theta[0:-1:step]:
-		for phi in range_phi[0:-1:step]:
-
-			t1 = time.time()
-
-			#store_name = data_path + grad_ixt+obj_file_name+"_"+str(rho)+"_"+str(theta)+"_"+str(phi)+"_"+str(step)+grad_ext
-
-			grad_captures = []
-
-
-			# try :
-			# 	f = open(store_name, 'rb')
-			# 	grad_captures = pickle.load(f)
-			# 	f.close()
-			# 	print("Gradients deja existants !")
-
-			# except Exception as e:
-			# 	print(e)
-
-			# 	print("Generation groupes de gradients...")
-
-			for i in range(step):
-				for j in range(step):
-
-					t = theta + rg[i]
-					p = phi + rg[j]
-
-					store_name = data_path + grad_ixt+obj_file_name+"_"+str(rho)+"_"+str(t)+"_"+str(p)+"_"+str(5)+grad_ext
-					print(store_name)
-
-					f = open(store_name, 'rb')
-					grad_sparse = pickle.load(f)
-					f.close()
-
-					grad = sparse2grad(grad_sparse)
-
-					grad_captures.append([(rho, t, p), grad])
-
-
-				# f = open(store_name, 'wb')
-				# pickle.dump(grad_captures, f)
-				# f.close()
-
-
-
-			sim_pairs = []
-			already_used = []
-
-			previous_pair_0 = -1
-			for pair in combinations(range(0, step*step), 2):
-
-				if pair[0] not in already_used:
-
-					if pair[0] != previous_pair_0:
-
-						# Current tree creation (Root pair[0])
-						act_tree = Tree()
-						tree_list_0.append(act_tree)
-						root_name = pos2name(grad_captures[pair[0]][0])
-
-						act_tree.create_node(root_name, root_name, data = grad_captures[pair[0]][0])
-
-						# Default child: pair[0]
-						#act_tree.create_node(root_name, root_name, parent = root_name, data = grad_captures[pair[0]][0])
-
-						previous_pair_0 = pair[0]
-
-					if pair[1] not in already_used:
-
-						grad1 = grad_captures[pair[0]] [1]
-						grad2 = grad_captures[pair[1]] [1]
-
-						#cv.imshow("Scanned gradient", abs(grad1[:, :, 0] - grad2[:, :, 0]))
-						#cv.imshow("Current gradient", grad2[:, :, 0])
-						#cv.waitKey(1)
-
-
-
-						sim = similarity_vec(grad1, grad2)
-						#sim = similarity_sparse(grad1, grad2)
-
-						print(pair, sim)
-
-						if sim > sim_thresh:
-
-							# Adding children to root node
-							child_name = pos2name(grad_captures[pair[1]][0])
-							act_tree.create_node(child_name, child_name, parent = root_name, data = grad_captures[pair[1]][0])
-
-							sim_pairs.append( (grad_captures[pair[0]][0], grad_captures[pair[1]][0], sim) )
-							print("Added one")
-
-							already_used.append(pair[1])
-
-							# Adding full act_tree to tree_list level 0
-							#act_tree.show()
-
-						else :
-
-							cv.imshow("Different enough gradients", abs(grad1[:, :, 0] - grad2[:, :, 0]))
-							#cv.imshow("Current gradient", grad2[:, :, 0])
-							cv.waitKey(1)
-
-
-			# for tree in tree_list_0:
-			# 	tree.show()
-
-			#sys.exit()
-
-
-					
-					
-
-
-			
-			"""
-			for pair1 in combinations(range(0, int(step*pas), int(pas)), 2):
-
-				t1 = theta + pair1[0]
-				p1 = phi + pair1[1]
-
-				capture_name1 = data_path + capture_ixt+obj_file_name+"_"+str(rho)+"_"+str(t1)+"_"+str(p1)+".png"
-				img1 = cv.imread(capture_name1, cv.IMREAD_GRAYSCALE)
-				grad1 = gray2grad(img1)
-
-				for pair2 in combinations(range(pair1, int(step*pas), int(pas)), 2):
-
-					if pair1 != pair2 :
-
-						t2 = theta + pair2[0]
-						p2 = phi + pair2[1]
-
-						capture_name2 = data_path + capture_ixt+obj_file_name+"_"+str(rho)+"_"+str(t2)+"_"+str(p2)+".png"
-						img2 = cv.imread(capture_name2, cv.IMREAD_GRAYSCALE)
-						grad2 = gray2grad(img2)
-
-
-						sim = similarity_vec(grad1, grad2)
-
-						sim_pairs.append(sim)
-						print("Added one")
-				"""
-
-			print(rho, theta, phi, "Len sim_pairs:", len(sim_pairs))
-			print("Time", time.time() - t1)
-
-					
-
-
-
-f = open(data_path + "tree_list_0" + grad_ext, 'wb')
-pickle.dump(tree_list_0, f)
+f = open(data_path + "tree_list_0" + grad_ext, 'rb')
+tree_list_0 = pickle.load(f)
 f.close()
 
+print(len(tree_list_0))
+
+mask_matrix_0 = treelist2mask(tree_list_0)
+render_mask(mask_matrix_0)
+
+#gen_lvl_others(mask_matrix_0, 1, 7, 0.85, pas)
+
+
+f = open(data_path + "tree_list_1" + grad_ext, 'rb')
+tree_list_1 = pickle.load(f)
+f.close()
+
+print(len(tree_list_1))
+
+mask_matrix_1 = treelist2mask(tree_list_1)
+render_mask(mask_matrix_1)
+
+#gen_lvl_others(mask_matrix_1, 2, 10, 0.80, pas)
+
+
+f = open(data_path + "tree_list_2" + grad_ext, 'rb')
+tree_list_2 = pickle.load(f)
+f.close()
+
+print(len(tree_list_2))
+
+mask_matrix_2 = treelist2mask(tree_list_2)
+render_mask(mask_matrix_2)
+
+#gen_lvl_others(mask_matrix_2, 3, 25, 0.80, pas)
+
+
+f = open(data_path + "tree_list_3" + grad_ext, 'rb')
+tree_list_3 = pickle.load(f)
+f.close()
+
+print(len(tree_list_3))
+
+mask_matrix_3 = treelist2mask(tree_list_3)
+render_mask(mask_matrix_3)
 
 
 
 
-
-
-
-
-"""
-
+""" #TESTS
 
 capture_name1 = data_path + capture_ixt+obj_file_name+"_"+str(7.0)+"_"+str(-50.0)+"_"+str(-20.0)+".png"
 capture_name2 = data_path + capture_ixt+obj_file_name+"_"+str(7.0)+"_"+str(-50.0)+"_"+str(-24.0)+".png"
@@ -928,3 +1090,34 @@ cv.waitKey(0)
 
 """
 
+
+
+
+			
+"""
+			for pair1 in combinations(range(0, int(step*pas), int(pas)), 2):
+
+				t1 = theta + pair1[0]
+				p1 = phi + pair1[1]
+
+				capture_name1 = data_path + capture_ixt+obj_file_name+"_"+str(rho)+"_"+str(t1)+"_"+str(p1)+".png"
+				img1 = cv.imread(capture_name1, cv.IMREAD_GRAYSCALE)
+				grad1 = gray2grad(img1)
+
+				for pair2 in combinations(range(pair1, int(step*pas), int(pas)), 2):
+
+					if pair1 != pair2 :
+
+						t2 = theta + pair2[0]
+						p2 = phi + pair2[1]
+
+						capture_name2 = data_path + capture_ixt+obj_file_name+"_"+str(rho)+"_"+str(t2)+"_"+str(p2)+".png"
+						img2 = cv.imread(capture_name2, cv.IMREAD_GRAYSCALE)
+						grad2 = gray2grad(img2)
+
+
+						sim = similarity_vec(grad1, grad2)
+
+						sim_pairs.append(sim)
+						print("Added one")
+"""
