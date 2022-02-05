@@ -72,7 +72,7 @@ model = load_obj(model_path + obj_file_name + ext, triangulate=True)
 # List of faces: [(vect_id, -1, normal_id)*nb of vectices in face]
 
 
-for fi in model.polygons: 
+for fi in model.polygons:
 	# fi=[(vect_id, -1, normal_id) * nb of vectices in face]
 	# v=(vect_id, -1, normal_id)
 
@@ -172,3 +172,5 @@ sys.exit()
 
 #scene2.forward = vector(-1, 1, 1)
 #scene2.range = 10
+
+

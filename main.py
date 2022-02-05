@@ -102,8 +102,15 @@ from treelib import Tree, Node
 
 
 def fast_eigen(a, b, c, d):
+	"""
+	:param a: first coefficient of the 2*2 matrix
+	:param b:
+	:param c:
+	:param d:
+	:return: eigen values of the 2*2 matrix
+	"""
 	# https://people.math.harvard.edu/~knill/teaching/math21b2004/exhibits/2dmatrices/index.html
-	
+
 	T = a+d # trace
 	D = a*d - b*c # determinant
 
@@ -117,7 +124,15 @@ def fast_eigen(a, b, c, d):
 
 
 def colornorm2amp(cm, cr, cc):
-	"""Compute color edge amplitude. cm = color_main, cr = color_row, cc = color_col (prev pixels)"""
+	"""Compute color edge amplitude. cm = color_main, cr = color_row, cc = color_col (prev pixels)
+	:param cm: color_main of the pixel
+	:param cr: color_row (previous pixel)
+	:param cc: color_col (previous pixel)
+	:return: the amplitude of the pixel as defined in the paper (on which we then filter to remove edges we don't care about
+	-> if angle (proportional to amplitude) > threshold_angle -> amplitude replaced by 0)
+
+		"""
+
 	#		cc
 	# cr	cm
 
@@ -157,14 +172,20 @@ def colornorm2amp(cm, cr, cc):
 	#print(eigen)
 	best_eig = max(eigen)
 
-	A = np.sqrt(best_eig)
+	A = np.sqrt(best_eig) #amplitude
 
 	return A
 
 
 
 def image2edge(img, angle_threshold): # using colornorm2amp
+	"""
 
+	:param img: image on which we want to filter edges
+	:param angle_threshold: the threshold condition for filtering (the bigger, the more edges we keep)
+	:return: matrix of shape (image_width, image_lenght, 2) with the amplitude and angle values for each pixel
+	(used for edges filtering)
+	"""
 	img = img / 255
 
 	edge = np.zeros(img.shape[:2], 2) # , dtype=np.uint8
@@ -191,11 +212,24 @@ def image2edge(img, angle_threshold): # using colornorm2amp
 
 
 def F(theta, g11, g12, g22):
+	"""
+
+	:param theta: angle (variable)
+	:param g11:
+	:param g12:
+	:param g22:
+	:return: function that we want to maximize, used in gray2grad() function
+		"""
 	return 1/2 * ((g11 + g22) + np.cos(2*theta)*(g11 - g22) + 2*g12*np.sin(2*theta))
 
 
 def gray2grad(img): # taking gray image
+	"""
 
+	:param img: grayscale image
+	:return: matrix of shape (image_width, image_lenght, 2) with the amplitude and angle values for each pixel (later used
+	for cosine similarity)
+	"""
 	img = img / 255
 	#print(img)
 
@@ -245,7 +279,12 @@ def gray2grad(img): # taking gray image
 
 
 def color2grad(img): # taking 3 channel color image
-		
+	"""
+	Idem gray2grad() function for a colored image.
+	:param img: colored image
+	:return: matrix of shape (image_width, image_lenght, 2) with the amplitude and angle values for each pixel (later used
+	for cosine similarity)
+	"""
 	img = img / 255
 	#print(img)
 
@@ -308,7 +347,13 @@ def color2grad(img): # taking 3 channel color image
 	return grad
 
 
+
 def grad2cart(grad):
+	"""
+
+	:param grad: angles and amplitudes matrix (like the output of color2grad() function for instance)
+	:return: matrix of same shape (x,y) instead of (amplitude, angle)
+	"""
 	cart = np.zeros((grad.shape[0], grad.shape[1], 2))
 
 	for y in range(grad.shape[0]):
@@ -321,14 +366,30 @@ def grad2cart(grad):
 
 
 def vec2cart(vec):
+	"""
+
+	:param vec: vector defined by (amplitude, angle)
+	:return: vector (x,y)
+	"""
 	return (vec[0] * np.cos(vec[1]), vec[0] * np.sin(vec[1]))
 
 
 def norm(cart):
+	"""
+
+	:param cart: vector (x,y)
+	:return: norm of the vector
+	"""
 	return np.sqrt( cart[0]**2 + cart[1]**2 )
 
 
 def similarity(m, s):
+	"""
+
+	:param m: x and y matrix (or "gradients matrix") of 1st image
+	:param s: x and y matrix (or "gradients matrix") of 2nd image
+	:return: cosine similarity of the two images
+	"""
 	sim = 0
 	n = 0
 	for y in range(m.shape[0]):
@@ -341,7 +402,14 @@ def similarity(m, s):
 			
 	return sim/n
 
+
 def similarity_vec(m, s, correction = 0):
+	"""
+
+	:param m: angles and amplitudes matrix (or "gradients matrix") of 1st image
+	:param s: angles and amplitudes matrix (or "gradients matrix") of 2nd image
+	:return: cosine similarity of the two images
+	"""
 	sim = 0
 	n = 0
 	for y in range(m.shape[0]):
@@ -356,6 +424,12 @@ def similarity_vec(m, s, correction = 0):
 
 
 def similarity_sparse(m, s): # nul a chier
+	"""
+
+	:param m: sparsed matrix of 1st image
+	:param s: sparsed matrix of 2nd image
+	:return: cosine similarity of the two images
+	"""
 	sim = 0
 	n = 0
 
@@ -404,6 +478,12 @@ def similarity_sparse(m, s): # nul a chier
 
 
 def rotateImage(image, angle):
+    """
+
+    :param image: image we want to rotate
+    :param angle: angle of rotation
+    :return: rotated image
+    """
     row,col = image.shape
     center=tuple(np.array([row,col])/2)
     rot_mat = cv2.getRotationMatrix2D(center,angle,1.0)
@@ -413,7 +493,14 @@ def rotateImage(image, angle):
 
 
 def grad_render(img, grad, color, arrow_len, step):
-
+	"""
+	Draw gradient vectors (or arrows) directly onto the image
+	:param img: image
+	:param grad: amplitudes and angles matrix
+	:param color:
+	:param arrow_len: lenght of the gradient vectors
+	:param step: how many pixels we move when moving across the image (so that we don't draw arrows for every pixel)
+	"""
 	for y in range(0, img.shape[0], step):
 		for x in range(0, img.shape[1], step):
 
@@ -431,6 +518,11 @@ def grad_render(img, grad, color, arrow_len, step):
 
 
 def grad2sparse(grad):
+	"""
+
+	:param grad: amplitudes and angles matrix
+	:return: sparsed matrix
+	"""
 	#t1 = time.time()
 	sparse_array = [(grad.shape[0], grad.shape[1], grad.shape[2])]
 
@@ -445,6 +537,11 @@ def grad2sparse(grad):
 
 
 def sparse2grad(sparse):
+	"""
+
+	:param sparse: sparsed matrix
+	:return: amplitudes and angles matrix
+	"""
 	#t1 = time.time()
 	grad = np.zeros(sparse[0])
 
@@ -457,6 +554,12 @@ def sparse2grad(sparse):
 
 
 def save_sparse_grad():
+	"""
+	Function to save the gradient matrices so that we don't recalculate them everytime the code is run. Each gradient matrix
+	is saved as one file. Since most gradients inside a gradient matrix are 0, we save a sparse version of the gradient matrix
+	that is smaller in size.
+
+	"""
 	for rho in range_rho:
 		for theta in range_theta:
 			for phi in range_phi:
@@ -521,6 +624,11 @@ Repeat
 
 
 def pos2name(pos):
+	"""
+
+	:param pos: (pho, theta, phi)
+	:return: string version of the pos
+	"""
 	return str(int(pos[0]))+","+str(int(pos[1]))+","+str(int(pos[2]))
 
 
