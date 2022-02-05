@@ -141,7 +141,7 @@ for x in range(50):
 	rate(5)
 
 
-# Training data generation
+# Training data generation
 
 for rho in range_rho:
 	for theta in range_theta:
