@@ -8,7 +8,7 @@ A project done by Jean-Louis MATERNA and Tristan DESJARDINS.
 
 The idea is to find the coordinates of an object based on an image (test image). To do so, we generate images (camera views) of the object under different angles. We then, try to find which one of these camera views is the most similar to our test image (using a similarity score). 
 
-However, instead of comparing our test image to all the camera views, we create a sort of "tree" (pyramid) where at each iteration, a bunch of camera views are excluded. Therefore, it works much faster than a naive comparison with all the camera views. Once we found the best matching one, we assume the coordinates of our test image are those of the most similar camera views (which we know since we've generated it).  
+However, instead of comparing our test image to all the camera views, we create a sort of "tree" (pyramid) where at each iteration, a bunch of camera views are excluded. Therefore, it works much faster than a naive comparison with all the camera views. Once we found the best matching one, we assume the coordinates of our test image are those of the most similar camera view (which we know since we've generated it).  
 
 ## Previews
 
@@ -21,13 +21,12 @@ We can see the generated camera views (images of our object under different angl
 
 ### Generation of the Pyramid
 
-Here we can see the different levels of the pyramid. Each white square represent a camera view. We start with level 4 all the way to level 1, each time excluding camera views
-until we find the one that matches the most. 
+Here we can see the different levels of the pyramid. Each white square represent a camera view. We start with level 4 all the way to level 1, excluding camera views at each new level until we find the one that matches the most. 
 <img src= "https://user-images.githubusercontent.com/62900180/154373124-ed86bbae-f601-4a06-99dd-9b12d97cad57.png" alt="drawing" height="250"/>
 
 ### Testing our Pyramid (model)
 
-Here, the more white a square (camera view) is, the more similarity there is with the test image. For instance, for the first image, we used a test image where the object position is at (0,0). We can see indeed that the more we get close to (0,0) the whiter the squares get (which means more similarity. 
+Here, the whiter a square (camera view) is, the more similarity there is with the test image. For instance, for the first image, we used a test image where the object position is at (0,0). Therefore, we expect more similarity with camera views at (0,0). We can see that the closer we get to (0,0) the whiter the squares get (which means more similarity), proving our algorithm works. 
 
 <img src= "https://user-images.githubusercontent.com/62900180/154373440-254234a1-6aed-4fe7-a0c8-30771b5d7ae8.png" alt="drawing" height="250"/>
 
