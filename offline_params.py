@@ -17,3 +17,6 @@ range_theta = range_phi = np.linspace(-50, 50, num = 51) #°
 # Grad files
 grad_ixt = "grad_"
 grad_ext = ".pckl"
+
+# Renders
+render_path = "Others/"

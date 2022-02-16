@@ -100,6 +100,9 @@ from scipy.sparse import csr_matrix
 
 from treelib import Tree, Node
 
+from scipy.ndimage import interpolation
+from scipy.interpolate import griddata
+
 
 def fast_eigen(a, b, c, d):
 	"""
@@ -352,7 +355,7 @@ def grad2cart(grad):
 	"""
 
 	:param grad: angles and amplitudes matrix (like the output of color2grad() function for instance)
-	:return: matrix of same shape (x,y) instead of (amplitude, angle)
+	:return: matrix of same shape with gradients stored as (x,y) instead of (amplitude, angle)
 	"""
 	cart = np.zeros((grad.shape[0], grad.shape[1], 2))
 
@@ -403,7 +406,7 @@ def similarity(m, s):
 	return sim/n
 
 
-def similarity_vec(m, s, correction = 0):
+def similarity_vec(m, s):
 	"""
 
 	:param m: angles and amplitudes matrix (or "gradients matrix") of 1st image
@@ -415,12 +418,57 @@ def similarity_vec(m, s, correction = 0):
 	for y in range(m.shape[0]):
 		for x in range(m.shape[1]):
 
-			if m[y, x, 0] != 0 and s[y, x, 0] != 0:
-					sim += abs(np.cos(s[y, x, 1] - m[y, x, 1] + correction))
-					n+=1
+			a1 = m[y, x, 0]
+			a2 = s[y, x, 0]
+
+			if a1 > 0 or a2 > 0:
+				n+=1
+				if a1 > 0 and a2 > 0:
+					sim += abs(np.cos(s[y, x, 1] - m[y, x, 1]))
 	
 
 	return sim/n
+
+
+def similarity_vec_fast(m, s):
+	"""
+
+	:param m: angles and amplitudes matrix (or "gradients matrix") of 1st image
+	:param s: angles and amplitudes matrix (or "gradients matrix") of 2nd image
+	:return: cosine similarity of the two images
+	"""
+	sim = 0
+	n = 0
+
+	m_nzero_y, m_nzero_x = np.nonzero(m[:,:,0])
+	s_nzero_y, s_nzero_x = np.nonzero(s[:,:,0])
+
+
+	print(m_nzero_x)
+
+
+	for y in m_nzero_y:
+		for x in m_nzero_x:
+
+			a = s[y, x, 0]
+			n+=1
+
+			if a != 0:
+				sim += abs(np.cos(s[y, x, 1] - m[y, x, 1]))
+
+
+	for y in s_nzero_y:
+		for x in s_nzero_x:
+
+			a = m[y, x, 0]
+			n+=1
+
+			if a != 0:
+				sim += abs(np.cos(s[y, x, 1] - m[y, x, 1]))
+
+
+	return sim/n
+
 
 
 def similarity_sparse(m, s): # nul a chier
@@ -497,7 +545,7 @@ def grad_render(img, grad, color, arrow_len, step):
 	Draw gradient vectors (or arrows) directly onto the image
 	:param img: image
 	:param grad: amplitudes and angles matrix
-	:param color:
+	:param color: arrow's color
 	:param arrow_len: lenght of the gradient vectors
 	:param step: how many pixels we move when moving across the image (so that we don't draw arrows for every pixel)
 	"""
@@ -521,7 +569,7 @@ def grad2sparse(grad):
 	"""
 
 	:param grad: amplitudes and angles matrix
-	:return: sparsed matrix
+	:return: sparse matrix
 	"""
 	#t1 = time.time()
 	sparse_array = [(grad.shape[0], grad.shape[1], grad.shape[2])]
@@ -539,7 +587,7 @@ def grad2sparse(grad):
 def sparse2grad(sparse):
 	"""
 
-	:param sparse: sparsed matrix
+	:param sparse: sparse matrix
 	:return: amplitudes and angles matrix
 	"""
 	#t1 = time.time()
@@ -627,7 +675,7 @@ def pos2name(pos):
 	"""
 
 	:param pos: (pho, theta, phi)
-	:return: string version of the pos
+	:return: string version of the pos for Tree
 	"""
 	return str(int(pos[0]))+","+str(int(pos[1]))+","+str(int(pos[2]))
 
@@ -892,7 +940,7 @@ def pos2indexes(r, t, p):
 	t_i = np.where(range_theta == int(t))
 	p_i = np.where(range_phi == int(p))
 	
-	return r_i, t_i, p_i
+	return r_i[0][0], t_i[0][0], p_i[0][0]
 
 
 def treelist2mask(tree_list):
@@ -911,13 +959,36 @@ def treelist2mask(tree_list):
 	return mask_matrix
 
 
-def render_mask(mask_matrix):
+def render_mask(mask_matrix, level):
 	for rho in range(mask_matrix.shape[0]):
-		cv.imshow("mask_matrix rho " + str(rho), imutils.resize(mask_matrix[rho, :, :].astype("B")*255, width=mask_matrix.shape[1]*6))
+		render = imutils.resize(mask_matrix[rho, :, :].astype("B")*255, width=mask_matrix.shape[1]*6)
+		cv.imshow("mask_matrix rho " + str(rho), render)
 		cv.waitKey(1)
+		cv.imwrite(render_path + "render_" + str(level) + "_" + str(rho) + ".png", render)
 	cv.waitKey(0)
 
 
+
+
+
+def grad_resize_undersample(grad, denom):
+	return grad[::denom, ::denom, :]
+
+def grad_resize_interp(grad, ratio):
+	return interpolation.zoom(grad, (ratio, ratio, 1))
+
+# def grad_resize_grid(grad, ratio):
+# 	amp = grad[:,:,0]
+# 	ang = grad[:,:,1]
+
+# 	return (griddata(points, values, (grid_x, grid_y), method='nearest'), griddata(points, values, (grid_x, grid_y), method='nearest'))
+
+
+
+
+
+
+# PYRAMID GENERATION
 
 pyramid = None
 
@@ -933,8 +1004,8 @@ pas = range_theta[1] - range_theta[0] #2
 
 
 
-#gen_lvl_0(5, 0.90, pas)
 
+#gen_lvl_0(5, 0.90, pas)
 
 f = open(data_path + "tree_list_0" + grad_ext, 'rb')
 tree_list_0 = pickle.load(f)
@@ -943,10 +1014,11 @@ f.close()
 print(len(tree_list_0))
 
 mask_matrix_0 = treelist2mask(tree_list_0)
-render_mask(mask_matrix_0)
+#render_mask(mask_matrix_0, 0)
 
-#gen_lvl_others(mask_matrix_0, 1, 7, 0.85, pas)
 
+
+#gen_lvl_others(mask_matrix_0, 1, 10, 0.875, pas)
 
 f = open(data_path + "tree_list_1" + grad_ext, 'rb')
 tree_list_1 = pickle.load(f)
@@ -955,10 +1027,11 @@ f.close()
 print(len(tree_list_1))
 
 mask_matrix_1 = treelist2mask(tree_list_1)
-render_mask(mask_matrix_1)
+#render_mask(mask_matrix_1, 1)
 
-#gen_lvl_others(mask_matrix_1, 2, 10, 0.80, pas)
 
+
+#gen_lvl_others(mask_matrix_1, 2, 15, 0.85, pas)
 
 f = open(data_path + "tree_list_2" + grad_ext, 'rb')
 tree_list_2 = pickle.load(f)
@@ -967,10 +1040,11 @@ f.close()
 print(len(tree_list_2))
 
 mask_matrix_2 = treelist2mask(tree_list_2)
-render_mask(mask_matrix_2)
+#render_mask(mask_matrix_2, 2)
+
+
 
 #gen_lvl_others(mask_matrix_2, 3, 25, 0.80, pas)
-
 
 f = open(data_path + "tree_list_3" + grad_ext, 'rb')
 tree_list_3 = pickle.load(f)
@@ -979,12 +1053,370 @@ f.close()
 print(len(tree_list_3))
 
 mask_matrix_3 = treelist2mask(tree_list_3)
-render_mask(mask_matrix_3)
+#render_mask(mask_matrix_3, 3)
+
+
+
+#gen_lvl_others(mask_matrix_3, 4, 50, 0.75, pas)
+
+f = open(data_path + "tree_list_4" + grad_ext, 'rb')
+tree_list_4 = pickle.load(f)
+f.close()
+
+print(len(tree_list_4))
+
+mask_matrix_4 = treelist2mask(tree_list_4)
+#render_mask(mask_matrix_4, 4)
+
+
+
+def pos2filegradname(pos):
+	r = float(pos[0])
+	t = float(pos[1])
+	p = float(pos[2])
+	return data_path + grad_ixt + obj_file_name + "_" + str(r) + "_" + str(t) + "_" + str(p) + "_" + str(5) + grad_ext
+
+
+def find_tree_in_list(tree_list, pos_name):
+
+	for tree in tree_list:
+		root_node = tree.get_node(tree.root)
+
+		if root_node.tag == pos_name:
+			return tree
+
+	return None
+
+
+
+# TREE CONSTRUCTION
+
+
+def get_parentless_nodes(act_tree_list, prev_tree_list, rho_list = []):
+	# List all children of prev
+
+	children_list = []
+	for tree in prev_tree_list:
+		#root_node = tree.get_node(tree.root)
+		children = tree.children(tree.root)
+
+		children_list.append(children)
+
+	# Compare all roots of act
+
+	parentless_nodes = []
+
+	for tree in act_tree_list:
+		root_node = tree.get_node(tree.root)
+		if root_node.tag not in children_list:
+
+			if rho_list != [] and name2pos(root_node.tag)[0] in rho_list:
+				parentless_nodes.append(root_node.tag)
+
+			if rho_list == []:
+				parentless_nodes.append(root_node.tag)
+
+	# Return roots not in prev children
+	return parentless_nodes
+
+
+def render_matches(pos_sim_list, mult = 3):
+
+	matches_matrix = np.zeros((len(range_rho), len(range_theta), len(range_phi)))
+
+	for pos, sim in pos_sim_list:
+		r_i, t_i, p_i = pos2indexes(pos[0], pos[1], pos[2])
+		matches_matrix[r_i, t_i, p_i] = sim
+
+
+	for rho in range(len(range_rho)):
+		render = imutils.resize(matches_matrix[rho, :, :] * mult, width=matches_matrix.shape[1]*6)
+		cv.imshow("matches_matrix rho " + str(rho), render)
+		cv.waitKey(1)
 
 
 
 
-""" #TESTS
+def pos2graygrad(pos):
+	store_name = pos2filegradname(pos)
+
+	f = open(store_name, 'rb')
+	grad_sparse = pickle.load(f)
+	f.close()
+
+	# Converting sparse gradient to full matrix gradient
+	grad = sparse2grad(grad_sparse)
+
+	return grad
+
+
+
+
+def find_closest_match_pyramid(test_img, usample, discard_ratio = 0.75, exhaustive_search = False, visualize = True):
+
+	grad_img = grad_resize_undersample(gray2grad(cv.cvtColor(test_img, cv.COLOR_BGR2GRAY)), usample)
+	#grad_img = grad_resize_undersample(color2grad(test_img), usample)
+
+	best_sim = 0.0
+	best_pos_name = ""
+
+	# List of best candidates (sim > thresh) for each pyramid level
+	best_sim_pos_list = [list([]) for i in range(len(pyramid)+1)]
+	# List of (pos, sim) for each pos, cumulative for each level
+	pos_sim_list = []
+
+
+	# Level max
+	# Getting best root nodes from the first pyramid level, to then analyze the children in next levels. 
+	print("Level 0: parents")
+
+
+	for tree in pyramid[0]:
+		root_node = tree.get_node(tree.root)
+		#children = tree.children(root_node.tag)
+
+		grad = pos2graygrad(name2pos(root_node.tag))
+
+		#cProfile.run('sim = similarity_vec_fast(grad_img, grad)')
+		sim = similarity_vec(grad_img, grad_resize_undersample(grad, usample))
+		pos_sim_list.append((name2pos(root_node.tag), sim))
+		
+
+		if sim > pyramid_tresh[0]:
+			print("V", root_node.tag, sim, pyramid_tresh[0])
+			best_sim_pos_list[0].append(root_node.tag)
+
+		else:
+			print("X", root_node.tag, sim, pyramid_tresh[0])
+
+
+		if sim > best_sim:
+			best_sim = sim
+			best_pos_name = root_node.tag
+
+
+	print("Level 3 best:", best_pos_name, "sim", best_sim)
+	if visualize : render_matches(pos_sim_list)
+
+
+
+	# Level 1+
+	# Analyzing children of previous level
+
+	for level in range(len(pyramid)):
+		#pos_sim_list = []
+		print("Level", level, ": children")
+
+		tree_list = pyramid[level]
+
+		print("Candidats, ", best_sim_pos_list[level])
+
+
+		for pos_name in best_sim_pos_list[level]:
+
+			tree = find_tree_in_list(tree_list, pos_name)
+			if tree != None:
+				children = tree.children(tree.root)
+				#tree.show()
+
+
+			for child_node in children:
+				child = child_node.tag
+				grad = pos2graygrad(name2pos(child))
+
+				sim = similarity_vec(grad_img, grad_resize_undersample(grad, usample))
+				pos_sim_list.append((name2pos(child), sim))
+				
+
+				if sim > best_sim:
+					best_sim = sim
+					best_pos_name = child
+
+
+				if sim < pyramid_tresh[level+1] * discard_ratio:
+					best_sim_pos_list[level].remove(pos_name)
+					print("X", child, sim, pyramid_tresh[level+1])
+
+					break
+
+				elif sim > pyramid_tresh[level+1]:
+					best_sim_pos_list[level+1].append(child)
+					print("V", child, sim, pyramid_tresh[level+1])
+
+				else :
+					print("O", child, sim, pyramid_tresh[level+1])
+
+				
+
+			if best_sim > pyramid_tresh[-1]:
+				print("Found match")
+				break
+
+
+			
+		print("Level", level, " best:", best_pos_name,"sim", best_sim)
+		if visualize : render_matches(pos_sim_list)
+
+		if best_sim > pyramid_tresh[-1]:
+			print("Found match")
+			break
+
+
+
+		if exhaustive_search: # Get all the rho candidates 
+
+			rho_list = []
+
+			for pos in best_sim_pos_list[level+1]:
+				rho = name2pos(pos)[0]
+				if rho not in rho_list:
+					rho_list.append(rho)
+
+		else : # Get the most important rho by average weight 
+
+			optimal_rho_list = np.zeros((len(range_rho), 2))
+
+			for pos, sim in pos_sim_list:
+				r_i, t_i, p_i = pos2indexes(pos[0], pos[1], pos[2])
+
+				optimal_rho_list[r_i, 0] += sim
+				optimal_rho_list[r_i, 1] += 1
+			
+			# print("optimal_rho_list list", optimal_rho_list)
+			optimal_rho_list[:, 0] /= optimal_rho_list[:, 1]+1
+
+			rho_list = [str(int(range_rho[np.argmax(optimal_rho_list[:, 0])]))]
+		
+
+
+		best_sim_pos_list[level+1] += best_sim_pos_list[level]
+
+
+		#Add parentless nodes
+		print("Best rho list", rho_list)
+		try:
+			best_sim_pos_list[level+1] += get_parentless_nodes(pyramid[level+1], pyramid[level], rho_list)
+		except Exception:
+			pass
+
+	
+	return best_pos_name, best_sim 
+
+
+
+# POSE REFINEMENT
+# Scan around the best_pos found during pyramid descend
+
+
+def refine_closest_match_pyramid(test_img, usample, best_pos_name, best_sim, rg=5):
+
+	print("Refinement...")
+
+	grad_img = grad_resize_undersample(gray2grad(cv.cvtColor(test_img, cv.COLOR_BGR2GRAY)), usample)
+
+
+	mid = (rg-1)//2
+
+	best_r_i, best_t_i, best_p_i = pos2indexes(*name2pos(best_pos_name))
+	#print(best_r_i, best_t_i, best_p_i)
+
+	refine_theta = range(best_t_i - mid, best_t_i + mid + 1)
+	refine_phi = range(best_p_i - mid, best_p_i + mid + 1)
+
+
+	rho = range_rho[best_r_i]
+
+	for t_i in refine_theta:
+		for p_i in refine_phi:
+
+			t = range_theta[t_i % len(range_theta)]
+			p = range_phi[p_i % len(range_phi)]
+
+			grad = pos2graygrad([rho, t, p])
+
+			sim = similarity_vec(grad_img, grad_resize_undersample(grad, usample))
+
+			if sim > best_sim:
+				best_sim = sim
+				best_pos_name = pos2name([rho, t, p])
+
+	return best_pos_name, best_sim
+
+
+
+# PYRAMID
+
+pyramid = [tree_list_3, tree_list_2, tree_list_1, tree_list_0]
+pyramid_tresh = [0.09, 0.15, 0.18, 0.2, 0.5]
+
+
+
+# CLOSEST MATCH SEARCH
+
+t1 = time.time()
+
+
+usample = 3
+test_img_name = data_path + capture_ixt + obj_file_name + "_"+str(7.0)+"_"+str(0.0)+"_"+str(0.0)+".png"
+test_img_name = data_path + "test1.png"
+test_img = cv.imread(test_img_name)
+
+
+# grad_img = grad_resize_undersample(gray2grad(cv.cvtColor(test_img, cv.COLOR_BGR2GRAY)), 3)
+
+# angles = []
+# sim_plt = []
+# for a in range(-10, 11):
+
+# 	angles.append(float(a*2))
+
+# 	test_img_name2 = capture_name1 = data_path + capture_ixt + obj_file_name + "_"+str(7.0)+"_"+str(0.0)+"_"+str(float(a*2))+".png"
+# 	test_img2 = cv.imread(test_img_name2)
+
+# 	grad_img2 = grad_resize_undersample(gray2grad(cv.cvtColor(test_img2, cv.COLOR_BGR2GRAY)), 3)
+
+# 	sim = similarity_vec(grad_img2, grad_img)
+# 	sim_plt.append(sim)
+
+# 	print("Angle",a*2, sim)
+
+
+# plt.rcParams["figure.figsize"] = (8,6)
+# plt.plot(angles, sim_plt)
+# plt.xlabel('Angle')
+# plt.ylabel('Similarity')
+# plt.show()
+
+
+
+best_pos_name, best_sim = find_closest_match_pyramid(test_img, usample, exhaustive_search= False)
+best_pos_name, best_sim = refine_closest_match_pyramid(test_img, usample, best_pos_name, best_sim, rg=5)
+
+print(">> Best refined pos", best_pos_name, "sim", best_sim)
+print("Found in", time.time() - t1, "s")
+
+
+cv.waitKey(1)
+input("Press enter to exit")
+
+
+# t1 = time.time()
+# for x in range(10):
+# 	color_grad_res = grad_resize_interp(color_grad, 1-0.01*x)
+
+# 	# cv.imshow("Undersampling", color_grad_res[:,:,0])
+# 	# cv.waitKey(0)
+
+# print(time.time() - t1)
+
+
+
+
+
+
+
+
+""" # TESTS
 
 capture_name1 = data_path + capture_ixt+obj_file_name+"_"+str(7.0)+"_"+str(-50.0)+"_"+str(-20.0)+".png"
 capture_name2 = data_path + capture_ixt+obj_file_name+"_"+str(7.0)+"_"+str(-50.0)+"_"+str(-24.0)+".png"
