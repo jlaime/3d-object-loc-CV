@@ -34,7 +34,7 @@ Here, the whiter a square (camera view) is, the more similarity there is with th
 There are 5 .py files in the project :
 - main.py : all the main functions used
 - training_data_gen.py : camera views generation
-- offline_params : definition of all the parameters used in the training phase (path etc)
+- offline_params.py : definition of all the parameters used in the training phase (path etc)
 - wavefront.py : importing the model from Blender
 
 
