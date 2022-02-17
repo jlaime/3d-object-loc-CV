@@ -6,9 +6,10 @@ A project done by Jean-Louis MATERNA and Tristan DESJARDINS.
 
 ## General idea  
 
-The idea is to find the coordinates of an object based on an image (test image). To do so, we generate images (camera views) of the object under different angles. We then, try to find which one of these camera views is the most similar to our test image (using a similarity score). 
+The idea is to locate accurately a real object inside a picture, with the help of the 3D object's model. To do so, we generate numerous camera views of the 3D model under different angles. Then, we try to find which one of these camera views is the most similar to our test image, taking the position variations and lens deformations into account. 
 
-However, instead of comparing our test image to all the camera views, we create a sort of "tree" (pyramid) where at each iteration, a bunch of camera views are excluded. Therefore, it works much faster than a naive comparison with all the camera views. Once we found the best matching one, we assume the coordinates of our test image are those of the most similar camera view (which we know since we've generated it).  
+This approach, while exhaustive, is naive and does not suit to realtime applications. 
+Therefore, instead of comparing our input picture to all the camera views, we create a sort of "tree" (pyramid) where at each iteration, most of camera views are excluded. Once the best camera coordinates are found, we assume the coordinates of our test image are those of the most similar camera view (which we know since we've generated it).  
 
 ## Previews
 
