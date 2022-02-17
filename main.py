@@ -191,7 +191,7 @@ def image2edge(img, angle_threshold): # using colornorm2amp
 	"""
 	img = img / 255
 
-	edge = np.zeros(img.shape[:2], 2) # , dtype=np.uint8
+	edge = np.zeros((img.shape[0], img.shape[1], 2)) # , dtype=np.uint8
 		
 	#gray = cv.cvtColor(edge, cv.COLOR_BGR2GRAY)
 	print(edge.shape)
@@ -987,6 +987,296 @@ def grad_resize_interp(grad, ratio):
 
 
 
+def pos2filegradname(pos):
+	r = float(pos[0])
+	t = float(pos[1])
+	p = float(pos[2])
+	return data_path + grad_ixt + obj_file_name + "_" + str(r) + "_" + str(t) + "_" + str(p) + "_" + str(5) + grad_ext
+
+
+def find_tree_in_list(tree_list, pos_name):
+
+	for tree in tree_list:
+		root_node = tree.get_node(tree.root)
+
+		if root_node.tag == pos_name:
+			return tree
+
+	return None
+
+
+
+# TREE CONSTRUCTION
+
+
+def get_parentless_nodes(act_tree_list, prev_tree_list, rho_list = []):
+	# List all children of prev
+
+	children_list = []
+	for tree in prev_tree_list:
+		#root_node = tree.get_node(tree.root)
+		children = tree.children(tree.root)
+
+		children_list.append(children)
+
+	# Compare all roots of act
+
+	parentless_nodes = []
+
+	for tree in act_tree_list:
+		root_node = tree.get_node(tree.root)
+		if root_node.tag not in children_list:
+
+			if rho_list != [] and name2pos(root_node.tag)[0] in rho_list:
+				parentless_nodes.append(root_node.tag)
+
+			if rho_list == []:
+				parentless_nodes.append(root_node.tag)
+
+	# Return roots not in prev children
+	return parentless_nodes
+
+
+def render_matches(pos_sim_list, mult = 3, color = 128):
+
+	matches_matrix = np.zeros((len(range_rho), len(range_theta), len(range_phi)))
+
+	for pos, sim in pos_sim_list:
+		r_i, t_i, p_i = pos2indexes(pos[0], pos[1], pos[2])
+		matches_matrix[r_i, t_i, p_i] = sim
+
+
+	for rho in range(len(range_rho)):
+		render = imutils.resize(matches_matrix[rho, :, :] * mult, width=matches_matrix.shape[1]*6)
+
+		cv.line(render, (render.shape[0]//2, 0), (render.shape[0]//2, render.shape[1]), color, 1)
+		cv.line(render, (0, render.shape[1]//2), (render.shape[0], render.shape[1]//2), color, 1)
+
+		cv.imshow("matches_matrix rho " + str(rho), render)
+		cv.waitKey(1)
+
+
+
+
+def pos2graygrad(pos):
+	store_name = pos2filegradname(pos)
+
+	f = open(store_name, 'rb')
+	grad_sparse = pickle.load(f)
+	f.close()
+
+	# Converting sparse gradient to full matrix gradient
+	grad = sparse2grad(grad_sparse)
+
+	return grad
+
+
+
+
+def find_closest_match_pyramid(pyramid, test_img, usample, discard_ratio = 0.75, exhaustive_search = False, visualize = True):
+
+	grad_img = grad_resize_undersample(gray2grad(cv.cvtColor(test_img, cv.COLOR_BGR2GRAY)), usample)
+	#grad_img = grad_resize_undersample(color2grad(test_img), usample)
+
+	best_sim = 0.0
+	best_pos_name = ""
+
+	# List of best candidates (sim > thresh) for each pyramid level
+	best_sim_pos_list = [list([]) for i in range(len(pyramid)+1)]
+	# List of (pos, sim) for each pos, cumulative for each level
+	pos_sim_list = []
+
+	if visualize: render_matches(pos_sim_list)
+
+
+	# Level max
+	# Getting best root nodes from the first pyramid level, to then analyze the children in next levels. 
+	print("Level 0: parents")
+
+
+	for tree in pyramid[0]:
+		root_node = tree.get_node(tree.root)
+		#children = tree.children(root_node.tag)
+
+		grad = pos2graygrad(name2pos(root_node.tag))
+
+		#cProfile.run('sim = similarity_vec_fast(grad_img, grad)')
+		sim = similarity_vec(grad_img, grad_resize_undersample(grad, usample))
+		pos_sim_list.append((name2pos(root_node.tag), sim))
+		
+
+		if sim > pyramid_tresh[0]:
+			print("V", root_node.tag, sim, pyramid_tresh[0])
+			best_sim_pos_list[0].append(root_node.tag)
+
+		else:
+			print("X", root_node.tag, sim, pyramid_tresh[0])
+
+
+		if sim > best_sim:
+			best_sim = sim
+			best_pos_name = root_node.tag
+
+		if visualize: render_matches(pos_sim_list)
+
+
+	print("Level 3 best:", best_pos_name, "sim", best_sim)
+	if visualize : render_matches(pos_sim_list)
+
+
+
+	# Level 1+
+	# Analyzing children of previous level
+
+	for level in range(len(pyramid)):
+		#pos_sim_list = []
+		print("Level", level, ": children")
+
+		tree_list = pyramid[level]
+
+		print("Candidats, ", best_sim_pos_list[level])
+
+
+		for pos_name in best_sim_pos_list[level]:
+
+			tree = find_tree_in_list(tree_list, pos_name)
+			if tree != None:
+				children = tree.children(tree.root)
+				#tree.show()
+
+
+			for child_node in children:
+				child = child_node.tag
+				grad = pos2graygrad(name2pos(child))
+
+				sim = similarity_vec(grad_img, grad_resize_undersample(grad, usample))
+				pos_sim_list.append((name2pos(child), sim))
+				
+
+				if sim > best_sim:
+					best_sim = sim
+					best_pos_name = child
+
+
+				if sim < pyramid_tresh[level+1] * discard_ratio:
+					best_sim_pos_list[level].remove(pos_name)
+					print("X", child, sim, pyramid_tresh[level+1])
+
+					break
+
+				elif sim > pyramid_tresh[level+1]:
+					best_sim_pos_list[level+1].append(child)
+					print("V", child, sim, pyramid_tresh[level+1])
+
+				else :
+					print("O", child, sim, pyramid_tresh[level+1])
+
+				
+
+			if best_sim > pyramid_tresh[-1]:
+				print("Found match")
+				break
+
+			if visualize: render_matches(pos_sim_list)
+
+
+			
+		print("Level", level, " best:", best_pos_name,"sim", best_sim)
+		if visualize : render_matches(pos_sim_list)
+
+		if best_sim > pyramid_tresh[-1]:
+			print("Found match")
+			break
+
+
+
+		if exhaustive_search: # Get all the rho candidates 
+
+			rho_list = []
+
+			for pos in best_sim_pos_list[level+1]:
+				rho = name2pos(pos)[0]
+				if rho not in rho_list:
+					rho_list.append(rho)
+
+		else : # Get the most important rho by average weight 
+
+			optimal_rho_list = np.zeros((len(range_rho), 2))
+
+			for pos, sim in pos_sim_list:
+				r_i, t_i, p_i = pos2indexes(pos[0], pos[1], pos[2])
+
+				optimal_rho_list[r_i, 0] += sim
+				optimal_rho_list[r_i, 1] += 1
+			
+			# print("optimal_rho_list list", optimal_rho_list)
+			optimal_rho_list[:, 0] /= optimal_rho_list[:, 1]+1
+
+			rho_list = [str(int(range_rho[np.argmax(optimal_rho_list[:, 0])]))]
+		
+
+
+		best_sim_pos_list[level+1] += best_sim_pos_list[level]
+
+
+		#Add parentless nodes
+		print("Best rho list", rho_list)
+		try:
+			best_sim_pos_list[level+1] += get_parentless_nodes(pyramid[level+1], pyramid[level], rho_list)
+		except Exception:
+			pass
+
+	
+	return best_pos_name, best_sim, pos_sim_list
+
+
+
+# POSE REFINEMENT
+# Scan around the best_pos found during pyramid descend
+
+
+def refine_closest_match_pyramid(pyramid, test_img, usample, best_pos_name, best_sim, rg=5, visualize=False, pos_sim_list=[]):
+
+	print("Refinement...")
+
+	grad_img = grad_resize_undersample(gray2grad(cv.cvtColor(test_img, cv.COLOR_BGR2GRAY)), usample)
+
+
+	mid = (rg-1)//2
+
+	best_r_i, best_t_i, best_p_i = pos2indexes(*name2pos(best_pos_name))
+	#print(best_r_i, best_t_i, best_p_i)
+
+	refine_theta = range(best_t_i - mid, best_t_i + mid + 1)
+	refine_phi = range(best_p_i - mid, best_p_i + mid + 1)
+
+
+	rho = range_rho[best_r_i]
+
+	for t_i in refine_theta:
+		for p_i in refine_phi:
+
+			t = range_theta[t_i % len(range_theta)]
+			p = range_phi[p_i % len(range_phi)]
+
+			grad = pos2graygrad([rho, t, p])
+
+			sim = similarity_vec(grad_img, grad_resize_undersample(grad, usample))
+			if visualize: 
+				pos_sim_list.append(((rho, t, p), sim))
+				#render_matches(pos_sim_list)
+
+
+			if sim > best_sim:
+				best_sim = sim
+				best_pos_name = pos2name([rho, t, p])
+
+	render_matches(pos_sim_list)
+
+	return best_pos_name, best_sim
+
+
+
 
 # PYRAMID GENERATION
 
@@ -1070,279 +1360,6 @@ mask_matrix_4 = treelist2mask(tree_list_4)
 
 
 
-def pos2filegradname(pos):
-	r = float(pos[0])
-	t = float(pos[1])
-	p = float(pos[2])
-	return data_path + grad_ixt + obj_file_name + "_" + str(r) + "_" + str(t) + "_" + str(p) + "_" + str(5) + grad_ext
-
-
-def find_tree_in_list(tree_list, pos_name):
-
-	for tree in tree_list:
-		root_node = tree.get_node(tree.root)
-
-		if root_node.tag == pos_name:
-			return tree
-
-	return None
-
-
-
-# TREE CONSTRUCTION
-
-
-def get_parentless_nodes(act_tree_list, prev_tree_list, rho_list = []):
-	# List all children of prev
-
-	children_list = []
-	for tree in prev_tree_list:
-		#root_node = tree.get_node(tree.root)
-		children = tree.children(tree.root)
-
-		children_list.append(children)
-
-	# Compare all roots of act
-
-	parentless_nodes = []
-
-	for tree in act_tree_list:
-		root_node = tree.get_node(tree.root)
-		if root_node.tag not in children_list:
-
-			if rho_list != [] and name2pos(root_node.tag)[0] in rho_list:
-				parentless_nodes.append(root_node.tag)
-
-			if rho_list == []:
-				parentless_nodes.append(root_node.tag)
-
-	# Return roots not in prev children
-	return parentless_nodes
-
-
-def render_matches(pos_sim_list, mult = 3):
-
-	matches_matrix = np.zeros((len(range_rho), len(range_theta), len(range_phi)))
-
-	for pos, sim in pos_sim_list:
-		r_i, t_i, p_i = pos2indexes(pos[0], pos[1], pos[2])
-		matches_matrix[r_i, t_i, p_i] = sim
-
-
-	for rho in range(len(range_rho)):
-		render = imutils.resize(matches_matrix[rho, :, :] * mult, width=matches_matrix.shape[1]*6)
-		cv.imshow("matches_matrix rho " + str(rho), render)
-		cv.waitKey(1)
-
-
-
-
-def pos2graygrad(pos):
-	store_name = pos2filegradname(pos)
-
-	f = open(store_name, 'rb')
-	grad_sparse = pickle.load(f)
-	f.close()
-
-	# Converting sparse gradient to full matrix gradient
-	grad = sparse2grad(grad_sparse)
-
-	return grad
-
-
-
-
-def find_closest_match_pyramid(test_img, usample, discard_ratio = 0.75, exhaustive_search = False, visualize = True):
-
-	grad_img = grad_resize_undersample(gray2grad(cv.cvtColor(test_img, cv.COLOR_BGR2GRAY)), usample)
-	#grad_img = grad_resize_undersample(color2grad(test_img), usample)
-
-	best_sim = 0.0
-	best_pos_name = ""
-
-	# List of best candidates (sim > thresh) for each pyramid level
-	best_sim_pos_list = [list([]) for i in range(len(pyramid)+1)]
-	# List of (pos, sim) for each pos, cumulative for each level
-	pos_sim_list = []
-
-
-	# Level max
-	# Getting best root nodes from the first pyramid level, to then analyze the children in next levels. 
-	print("Level 0: parents")
-
-
-	for tree in pyramid[0]:
-		root_node = tree.get_node(tree.root)
-		#children = tree.children(root_node.tag)
-
-		grad = pos2graygrad(name2pos(root_node.tag))
-
-		#cProfile.run('sim = similarity_vec_fast(grad_img, grad)')
-		sim = similarity_vec(grad_img, grad_resize_undersample(grad, usample))
-		pos_sim_list.append((name2pos(root_node.tag), sim))
-		
-
-		if sim > pyramid_tresh[0]:
-			print("V", root_node.tag, sim, pyramid_tresh[0])
-			best_sim_pos_list[0].append(root_node.tag)
-
-		else:
-			print("X", root_node.tag, sim, pyramid_tresh[0])
-
-
-		if sim > best_sim:
-			best_sim = sim
-			best_pos_name = root_node.tag
-
-
-	print("Level 3 best:", best_pos_name, "sim", best_sim)
-	if visualize : render_matches(pos_sim_list)
-
-
-
-	# Level 1+
-	# Analyzing children of previous level
-
-	for level in range(len(pyramid)):
-		#pos_sim_list = []
-		print("Level", level, ": children")
-
-		tree_list = pyramid[level]
-
-		print("Candidats, ", best_sim_pos_list[level])
-
-
-		for pos_name in best_sim_pos_list[level]:
-
-			tree = find_tree_in_list(tree_list, pos_name)
-			if tree != None:
-				children = tree.children(tree.root)
-				#tree.show()
-
-
-			for child_node in children:
-				child = child_node.tag
-				grad = pos2graygrad(name2pos(child))
-
-				sim = similarity_vec(grad_img, grad_resize_undersample(grad, usample))
-				pos_sim_list.append((name2pos(child), sim))
-				
-
-				if sim > best_sim:
-					best_sim = sim
-					best_pos_name = child
-
-
-				if sim < pyramid_tresh[level+1] * discard_ratio:
-					best_sim_pos_list[level].remove(pos_name)
-					print("X", child, sim, pyramid_tresh[level+1])
-
-					break
-
-				elif sim > pyramid_tresh[level+1]:
-					best_sim_pos_list[level+1].append(child)
-					print("V", child, sim, pyramid_tresh[level+1])
-
-				else :
-					print("O", child, sim, pyramid_tresh[level+1])
-
-				
-
-			if best_sim > pyramid_tresh[-1]:
-				print("Found match")
-				break
-
-
-			
-		print("Level", level, " best:", best_pos_name,"sim", best_sim)
-		if visualize : render_matches(pos_sim_list)
-
-		if best_sim > pyramid_tresh[-1]:
-			print("Found match")
-			break
-
-
-
-		if exhaustive_search: # Get all the rho candidates 
-
-			rho_list = []
-
-			for pos in best_sim_pos_list[level+1]:
-				rho = name2pos(pos)[0]
-				if rho not in rho_list:
-					rho_list.append(rho)
-
-		else : # Get the most important rho by average weight 
-
-			optimal_rho_list = np.zeros((len(range_rho), 2))
-
-			for pos, sim in pos_sim_list:
-				r_i, t_i, p_i = pos2indexes(pos[0], pos[1], pos[2])
-
-				optimal_rho_list[r_i, 0] += sim
-				optimal_rho_list[r_i, 1] += 1
-			
-			# print("optimal_rho_list list", optimal_rho_list)
-			optimal_rho_list[:, 0] /= optimal_rho_list[:, 1]+1
-
-			rho_list = [str(int(range_rho[np.argmax(optimal_rho_list[:, 0])]))]
-		
-
-
-		best_sim_pos_list[level+1] += best_sim_pos_list[level]
-
-
-		#Add parentless nodes
-		print("Best rho list", rho_list)
-		try:
-			best_sim_pos_list[level+1] += get_parentless_nodes(pyramid[level+1], pyramid[level], rho_list)
-		except Exception:
-			pass
-
-	
-	return best_pos_name, best_sim 
-
-
-
-# POSE REFINEMENT
-# Scan around the best_pos found during pyramid descend
-
-
-def refine_closest_match_pyramid(test_img, usample, best_pos_name, best_sim, rg=5):
-
-	print("Refinement...")
-
-	grad_img = grad_resize_undersample(gray2grad(cv.cvtColor(test_img, cv.COLOR_BGR2GRAY)), usample)
-
-
-	mid = (rg-1)//2
-
-	best_r_i, best_t_i, best_p_i = pos2indexes(*name2pos(best_pos_name))
-	#print(best_r_i, best_t_i, best_p_i)
-
-	refine_theta = range(best_t_i - mid, best_t_i + mid + 1)
-	refine_phi = range(best_p_i - mid, best_p_i + mid + 1)
-
-
-	rho = range_rho[best_r_i]
-
-	for t_i in refine_theta:
-		for p_i in refine_phi:
-
-			t = range_theta[t_i % len(range_theta)]
-			p = range_phi[p_i % len(range_phi)]
-
-			grad = pos2graygrad([rho, t, p])
-
-			sim = similarity_vec(grad_img, grad_resize_undersample(grad, usample))
-
-			if sim > best_sim:
-				best_sim = sim
-				best_pos_name = pos2name([rho, t, p])
-
-	return best_pos_name, best_sim
-
-
 
 # PYRAMID
 
@@ -1356,10 +1373,52 @@ pyramid_tresh = [0.09, 0.15, 0.18, 0.2, 0.5]
 t1 = time.time()
 
 
+try:
+	r, t, p = input("Position (default (7, 24, 24) > ").split(",")
+except Exception:
+	r = 7.0
+	t = 24.0
+	p = 24.0
+
+
 usample = 3
-test_img_name = data_path + capture_ixt + obj_file_name + "_"+str(7.0)+"_"+str(0.0)+"_"+str(0.0)+".png"
-test_img_name = data_path + "test1.png"
+test_img_name = data_path + capture_ixt + obj_file_name + "_"+str(float(r))+"_"+str(float(t))+"_"+str(float(p))+".png"
+#test_img_name = data_path + "test1.png"
 test_img = cv.imread(test_img_name)
+#cv.imshow("Test image", image2edge(test_img, angle_threshold)[:, :, 0]*2)
+cv.imshow("Test image", test_img)
+
+
+
+visualize = True
+
+best_pos_name, best_sim, pos_sim_list = find_closest_match_pyramid(pyramid, test_img, usample, exhaustive_search=False, visualize=visualize)
+best_pos_name, best_sim = refine_closest_match_pyramid(pyramid, test_img, usample, best_pos_name, best_sim, rg=5, visualize=visualize, pos_sim_list=pos_sim_list)
+
+print(">> Best refined pos", best_pos_name, "sim", best_sim)
+print("Found in", time.time() - t1, "s")
+
+
+r_f, t_f, p_f = name2pos(best_pos_name)
+
+found_img_name = data_path + capture_ixt + obj_file_name + "_"+str(float(r_f))+"_"+str(float(t_f))+"_"+str(float(p_f))+".png"
+found_img = cv.imread(found_img_name)
+cv.imshow("Found image", found_img)
+
+
+cv.waitKey(0)
+
+
+# t1 = time.time()
+# for x in range(10):
+# 	color_grad_res = grad_resize_interp(color_grad, 1-0.01*x)
+
+# 	# cv.imshow("Undersampling", color_grad_res[:,:,0])
+# 	# cv.waitKey(0)
+
+# print(time.time() - t1)
+
+
 
 
 # grad_img = grad_resize_undersample(gray2grad(cv.cvtColor(test_img, cv.COLOR_BGR2GRAY)), 3)
@@ -1386,33 +1445,6 @@ test_img = cv.imread(test_img_name)
 # plt.xlabel('Angle')
 # plt.ylabel('Similarity')
 # plt.show()
-
-
-
-best_pos_name, best_sim = find_closest_match_pyramid(test_img, usample, exhaustive_search= False)
-best_pos_name, best_sim = refine_closest_match_pyramid(test_img, usample, best_pos_name, best_sim, rg=5)
-
-print(">> Best refined pos", best_pos_name, "sim", best_sim)
-print("Found in", time.time() - t1, "s")
-
-
-cv.waitKey(1)
-input("Press enter to exit")
-
-
-# t1 = time.time()
-# for x in range(10):
-# 	color_grad_res = grad_resize_interp(color_grad, 1-0.01*x)
-
-# 	# cv.imshow("Undersampling", color_grad_res[:,:,0])
-# 	# cv.waitKey(0)
-
-# print(time.time() - t1)
-
-
-
-
-
 
 
 
