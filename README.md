@@ -27,7 +27,7 @@ Here, we can see the different levels of the pyramid. Each white square represen
 
 ### Testing our Pyramid (model)
 
-Here, the whiter a square (camera view) is, the more similarity there is with the test image. For instance, for the first image, we used a test image where the object position is at (0,0). Therefore, we expect more similarity with camera views at (0,0). We can see that the closer we get to (0,0) the whiter the squares get (which means more similarity), proving our algorithm works. 
+Here, the whiter a square (camera view) is, the more similarity there is with the test image. For instance, for the first image, we used a test image where the object position is at (0,0). Therefore, we expect more similarity with camera views at (0,0). We can see indeed that the closer we get to (0,0) the whiter the squares get. 
 
 <img src= "https://user-images.githubusercontent.com/62900180/154373440-254234a1-6aed-4fe7-a0c8-30771b5d7ae8.png" alt="drawing" height="250"/>
 
