@@ -23,7 +23,7 @@ We can see the generated camera views (images of our object under different angl
 ### Generation of the Pyramid
 
 Here, we can see the different levels of the pyramid. Each white square represents a camera view. We start with level 4 all the way to level 1, excluding camera views at each new level until we find the one that matches the most. 
-<img src= "https://user-images.githubusercontent.com/62900180/154373124-ed86bbae-f601-4a06-99dd-9b12d97cad57.png" alt="drawing" height="250"/>
+<img src= "https://user-images.githubusercontent.com/62900180/154379798-5230db5b-cb0f-4eec-ac57-d2b4bfcd8caf.png" alt="drawing" height="250"/>
 
 ### Testing our Pyramid (model)
 
